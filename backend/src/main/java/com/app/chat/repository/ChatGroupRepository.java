@@ -16,7 +16,7 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
     @Query(value = """
             SELECT cg.*
             FROM chat_groups cg
-            WHERE cg.type = "PRIVATE"
+            WHERE cg.type = 'PRIVATE'
                 AND cg.id IN (
                         SELECT group_id
                         FROM chat_group_members
@@ -35,6 +35,7 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
             value = """
             SELECT
                 cg.id AS groupId,
+                cg.type AS type,
                 CASE
                     WHEN cg.type = 'GROUP' THEN cg.title ELSE peer.full_name
                 END AS title,
@@ -77,8 +78,9 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
                 ON peer.id = peer_member.member_id
 
             WHERE
-            ((cg.type = 'GROUP' AND cg.title ILIKE :keyword ))
-            OR (cg.type = 'PRIVATE' AND peer.full_name ILIKE :keyword))
+            ((cg.type = 'GROUP' AND cg.title ILIKE :keyword )
+            OR
+            (cg.type = 'PRIVATE' AND peer.full_name ILIKE :keyword ))
             """,
             nativeQuery = true
     )

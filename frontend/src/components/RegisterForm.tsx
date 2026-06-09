@@ -1,10 +1,15 @@
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined'
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
+import ChatAppLogo from '@/components/common/ChatAppLogo'
+import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import {
   Alert,
   Box,
   Button,
+  InputAdornment,
   Stack,
   TextField,
-  Typography,
 } from '@mui/material'
 import { type FormEvent, useState } from 'react'
 import { register } from '@/api/auth'
@@ -40,12 +45,14 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
   if (isSuccess) {
     return (
       <AuthCard
-        title="Registration successful"
-        subtitle="Your account has been created. You can log in now."
+        title="You're all set!"
+        subtitle="Your account has been created. Sign in to get started."
+        icon={<CheckCircleOutlinedIcon />}
+        iconColor="success"
       >
         <Stack spacing={2}>
           <Alert severity="success">
-            Congratulations! Log in to start using the app.
+            Welcome to ChatApp! Sign in to start connecting with people.
           </Alert>
 
           <Button
@@ -54,7 +61,7 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
             fullWidth
             onClick={onNavigateToLogin}
           >
-            Go to login
+            Sign in
           </Button>
         </Stack>
       </AuthCard>
@@ -63,8 +70,10 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
 
   return (
     <AuthCard
-      title="Sign up"
-      subtitle="Create a new account to use the chat app"
+      title="Create your account"
+      subtitle="Join ChatApp and start connecting with people."
+      icon={<ChatAppLogo />}
+      iconVariant="logo"
     >
       <Box component="form" onSubmit={handleSubmit}>
         <Stack spacing={2}>
@@ -78,6 +87,15 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
             autoComplete="name"
             required
             fullWidth
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <PersonOutlinedIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
           <TextField
@@ -90,6 +108,15 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
             autoComplete="email"
             required
             fullWidth
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailOutlinedIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
           <TextField
@@ -100,7 +127,16 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Enter your password"
             autoComplete="new-password"
-            slotProps={{ htmlInput: { minLength: 3 } }}
+            slotProps={{
+              htmlInput: { minLength: 3 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockOutlinedIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
             required
             fullWidth
           />
@@ -113,25 +149,10 @@ export default function RegisterForm({ onNavigateToLogin }: RegisterFormProps) {
             size="large"
             fullWidth
             disabled={isSubmitting}
+            sx={{ mt: 0.5 }}
           >
-            {isSubmitting ? 'Signing up...' : 'Sign up'}
+            {isSubmitting ? 'Creating account...' : 'Create account'}
           </Button>
-
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ textAlign: 'center' }}
-          >
-            Already have an account?{' '}
-            <Button
-              variant="text"
-              size="small"
-              onClick={onNavigateToLogin}
-              sx={{ textTransform: 'none', fontWeight: 600, p: 0, minWidth: 0 }}
-            >
-              Login
-            </Button>
-          </Typography>
         </Stack>
       </Box>
     </AuthCard>

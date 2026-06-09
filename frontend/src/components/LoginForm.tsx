@@ -1,10 +1,13 @@
+import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined'
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
+import ChatAppLogo from '@/components/common/ChatAppLogo'
 import {
   Alert,
   Box,
   Button,
+  InputAdornment,
   Stack,
   TextField,
-  Typography,
 } from '@mui/material'
 import { type FormEvent, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -12,11 +15,7 @@ import { login } from '@/api/auth'
 import AuthCard from '@/components/AuthCard'
 import { useAuthStore } from '@/stores/authStore'
 
-type LoginFormProps = {
-  onNavigateToRegister: () => void
-}
-
-export default function LoginForm({ onNavigateToRegister }: LoginFormProps) {
+export default function LoginForm() {
   const navigate = useNavigate()
   const setAccessToken = useAuthStore((state) => state.setAccessToken)
 
@@ -43,8 +42,10 @@ export default function LoginForm({ onNavigateToRegister }: LoginFormProps) {
 
   return (
     <AuthCard
-      title="Login"
-      subtitle="Enter your email and password to continue"
+      title="Welcome back"
+      subtitle="Sign in to continue chatting with your friends."
+      icon={<ChatAppLogo />}
+      iconVariant="logo"
     >
       <Box component="form" onSubmit={handleSubmit}>
         <Stack spacing={2}>
@@ -58,6 +59,15 @@ export default function LoginForm({ onNavigateToRegister }: LoginFormProps) {
             autoComplete="email"
             required
             fullWidth
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <EmailOutlinedIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
           />
 
           <TextField
@@ -68,7 +78,16 @@ export default function LoginForm({ onNavigateToRegister }: LoginFormProps) {
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Enter your password"
             autoComplete="current-password"
-            slotProps={{ htmlInput: { minLength: 3 } }}
+            slotProps={{
+              htmlInput: { minLength: 3 },
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockOutlinedIcon fontSize="small" color="action" />
+                  </InputAdornment>
+                ),
+              },
+            }}
             required
             fullWidth
           />
@@ -81,25 +100,10 @@ export default function LoginForm({ onNavigateToRegister }: LoginFormProps) {
             size="large"
             fullWidth
             disabled={isSubmitting}
+            sx={{ mt: 0.5 }}
           >
-            {isSubmitting ? 'Logging in...' : 'Login'}
+            {isSubmitting ? 'Signing in...' : 'Sign in'}
           </Button>
-
-          <Typography
-            variant="body2"
-            color="text.secondary"
-            sx={{ textAlign: 'center' }}
-          >
-            Don&apos;t have an account?{' '}
-            <Button
-              variant="text"
-              size="small"
-              onClick={onNavigateToRegister}
-              sx={{ textTransform: 'none', fontWeight: 600, p: 0, minWidth: 0 }}
-            >
-              Sign up
-            </Button>
-          </Typography>
         </Stack>
       </Box>
     </AuthCard>

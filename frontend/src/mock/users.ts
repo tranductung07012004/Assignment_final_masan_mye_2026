@@ -31,4 +31,22 @@ export const mockUsers: UserSummary[] = [
     email: 'grace.liu@example.com',
     avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Grace',
   },
+  {
+    id: 15,
+    fullName: 'Ryan Cooper',
+    email: 'ryan.cooper@example.com',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Ryan',
+  },
+  {
+    id: 16,
+    fullName: 'Sophie Turner',
+    email: 'sophie.turner@example.com',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Sophie',
+  },
+  {
+    id: 17,
+    fullName: 'Kevin Nguyen',
+    email: 'kevin.nguyen@example.com',
+    avatarUrl: 'https://api.dicebear.com/9.x/avataaars/svg?seed=Kevin',
+  },
 ]

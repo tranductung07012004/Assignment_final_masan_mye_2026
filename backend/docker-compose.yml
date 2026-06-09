@@ -1,27 +1,68 @@
-services: 
-  redis: 
+# Local dev (app chạy trên IDE, port 8080):
+#   docker compose up -d
+#   → chỉ bật redis + database (localhost:6379, localhost:5432)
+#
+# Full stack (app trong Docker + nginx):
+#   docker compose --profile full up -d --build
+#   docker compose --profile full up -d --build --scale app=3
+
+services:
+  nginx:
+    profiles: ["full"]
+    image: nginx:1.27-alpine
+    container_name: nginx-chat
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    networks:
+      - backend
+
+  app:
+    profiles: ["full"]
+    build: .
+    environment:
+      DB_URL: jdbc:postgresql://database:5432/db
+      DB_USERNAME: user
+      DB_PASSWORD: "123"
+      REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    depends_on:
+      - redis
+      - database
+    networks:
+      - backend
+
+  redis:
     image: redis:7.4-alpine
     container_name: redis-chat
-    ports: 
+    ports:
       - "6379:6379"
-    volumes: 
+    volumes:
       - ./redis.conf:/usr/local/etc/redis/redis.conf
       - redis_data:/data
     command: redis-server /usr/local/etc/redis/redis.conf
+    networks:
+      - backend
 
   database:
     image: postgres:15-alpine
     container_name: db
     mem_limit: 512m
+    ports:
+      - "5432:5432"
     environment:
       POSTGRES_DB: db
       POSTGRES_USER: user
-      POSTGRES_PASSWORD: 123
-    ports:
-      - "5432:5432"
+      POSTGRES_PASSWORD: "123"
     volumes:
       - database_data:/var/lib/postgresql/data
-      - ./db_script.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db_script.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./sample.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    networks:
+      - backend
 
 volumes:
   redis_data:

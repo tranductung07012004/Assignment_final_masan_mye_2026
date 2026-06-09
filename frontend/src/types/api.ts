@@ -2,3 +2,14 @@ export type ApiResponse<T> = {
   message: string
   data: T
 }
+
+export type SpringPage<T> = {
+  content: T[]
+  totalElements: number
+  totalPages: number
+  size: number
+  number: number
+  first: boolean
+  last: boolean
+  empty: boolean
+}

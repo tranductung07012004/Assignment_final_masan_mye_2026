@@ -14,10 +14,10 @@ export default function AppFooter() {
       }}
     >
       <Typography variant="body2" color="text.secondary">
-        Chat App &mdash; Connect with friends and chat in real time.
+        Chat App by Tung Tran &mdash; Connect with friends and chat in real time.
       </Typography>
       <Typography variant="caption" color="text.disabled">
-        &copy; {new Date().getFullYear()} Chat App. All rights reserved.
+        &copy; {new Date().getFullYear()} Tung Tran -Chat App. All rights reserved.
       </Typography>
     </Box>
   )

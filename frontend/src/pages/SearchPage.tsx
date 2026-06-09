@@ -4,16 +4,16 @@ import {
   Button,
   Chip,
   InputAdornment,
-  List,
   ListItem,
   ListItemAvatar,
   ListItemText,
-  Paper,
   TextField,
   Typography,
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import { useMemo, useState } from 'react'
+import PaginatedListCard from '@/components/common/PaginatedListCard'
+import { usePagination } from '@/hooks/usePagination'
 import { mockUsers } from '@/mock/users'
 
 type RequestStatus = 'none' | 'pending'
@@ -31,6 +31,12 @@ export default function SearchPage() {
         u.email.toLowerCase().includes(q),
     )
   }, [query])
+
+  const { paginatedItems, page, setPage, totalPages, pageSize } = usePagination(
+    filteredUsers,
+    undefined,
+    query,
+  )
 
   function handleAddFriend(userId: number) {
     setSentRequests((prev) => new Set(prev).add(userId))
@@ -66,46 +72,42 @@ export default function SearchPage() {
         sx={{ mb: 3 }}
       />
 
-      <Paper elevation={0} sx={{ border: 1, borderColor: 'divider' }}>
-        <List disablePadding>
-          {filteredUsers.length === 0 ? (
-            <ListItem sx={{ py: 4, justifyContent: 'center' }}>
-              <Typography color="text.secondary">No users found.</Typography>
+      <PaginatedListCard
+        itemCount={filteredUsers.length}
+        paginatedItems={paginatedItems}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        emptyMessage="No users found."
+        getItemKey={(user) => user.id}
+        renderItem={(user, index, pageSize) => {
+          const status = getStatus(user.id)
+          return (
+            <ListItem
+              divider={index < pageSize - 1}
+              secondaryAction={
+                status === 'pending' ? (
+                  <Chip label="Request sent" size="small" color="default" />
+                ) : (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => handleAddFriend(user.id)}
+                  >
+                    Add Friend
+                  </Button>
+                )
+              }
+            >
+              <ListItemAvatar>
+                <Avatar src={user.avatarUrl ?? undefined} alt={user.fullName} />
+              </ListItemAvatar>
+              <ListItemText primary={user.fullName} secondary={user.email} />
             </ListItem>
-          ) : (
-            filteredUsers.map((user, index) => {
-              const status = getStatus(user.id)
-              return (
-                <ListItem
-                  key={user.id}
-                  divider={index < filteredUsers.length - 1}
-                  secondaryAction={
-                    status === 'pending' ? (
-                      <Chip label="Request sent" size="small" color="default" />
-                    ) : (
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        onClick={() => handleAddFriend(user.id)}
-                      >
-                        Add Friend
-                      </Button>
-                    )
-                  }
-                >
-                  <ListItemAvatar>
-                    <Avatar src={user.avatarUrl ?? undefined} alt={user.fullName} />
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={user.fullName}
-                    secondary={user.email}
-                  />
-                </ListItem>
-              )
-            })
-          )}
-        </List>
-      </Paper>
+          )
+        }}
+      />
     </Box>
   )
 }

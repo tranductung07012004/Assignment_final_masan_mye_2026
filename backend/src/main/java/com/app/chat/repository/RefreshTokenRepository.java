@@ -10,14 +10,6 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 
 public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
-
-    @Query(value = """
-                SELECT *
-                FROM refresh_tokens rt
-                WHERE rt.user_id = :userId
-            """, nativeQuery = true)
-    Optional<RefreshToken> findByUserId(@Param("userId") Long userId);
-
     @Modifying
     @Query(value = """
         DELETE FROM refresh_tokens r

@@ -9,7 +9,9 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
 
 type ApiErrorBody = {
   message?: string
-  error?: string
+  data?: {
+    errorCode?: string
+  }
 }
 
 let refreshPromise: Promise<string | null> | null = null
@@ -70,7 +72,7 @@ export async function apiClient<T>(
 
     const shouldRefresh =
       response.status === 401 &&
-      errorBody?.error === 'INVALID_ACCESS_TOKEN' &&
+      errorBody?.data?.errorCode === 'INVALID_ACCESS_TOKEN' &&
       !retried &&
       !path.startsWith('/api/auth/refresh')
 

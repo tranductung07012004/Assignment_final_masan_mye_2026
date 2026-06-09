@@ -3,6 +3,8 @@ package com.app.chat.entity;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -37,6 +39,7 @@ public class ChatMessage {
      * Raw JSON string mapped to PostgreSQL JSONB column.
      * Use a utility (e.g. JsonUtils) to parse/serialize as needed.
      */
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata")
     private String metadata;
 

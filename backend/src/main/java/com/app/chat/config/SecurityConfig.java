@@ -32,7 +32,9 @@ public class SecurityConfig {
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // best practice for Spring
                 .authorizeHttpRequests(auth ->
                         auth.requestMatchers(
-                                "/api/auth/**"
+                                "/api/auth/**",
+                                "/ws",
+                                "/ws/**"
                         ).permitAll().anyRequest().authenticated()
                 ).addFilterBefore(headerAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
@@ -43,8 +45,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
 
-        config.setAllowedOrigins(List.of(
-                "http://localhost:5173"
+        config.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*"
         ));
 
         config.setAllowedMethods(List.of(

@@ -14,6 +14,7 @@ import java.time.OffsetDateTime;
 @AllArgsConstructor
 public class ChatListItemResponse {
     private Long groupId;
+    private String type;
     private String title;
     private String avatarUrl; // avatar of the chat, if the chat is 1-1 then the avatarUrl would be the avatar of the peerMember, if the chat is group then it would be the group avatar
 }

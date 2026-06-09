@@ -26,6 +26,9 @@ public class ChatGroup {
     @Column(name = "title")
     private String title;
 
+    @Column(name = "avatar_url")
+    private String avatarUrl;
+
     @Column(name = "created_by")
     private Long createdBy;
 

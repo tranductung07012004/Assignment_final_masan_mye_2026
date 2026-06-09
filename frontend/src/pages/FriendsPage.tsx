@@ -2,14 +2,14 @@ import {
   Avatar,
   Box,
   Button,
-  List,
   ListItem,
   ListItemAvatar,
   ListItemText,
-  Paper,
   Typography,
 } from '@mui/material'
 import { useState } from 'react'
+import PaginatedListCard from '@/components/common/PaginatedListCard'
+import { usePagination } from '@/hooks/usePagination'
 import { mockFriendRequests, mockFriends } from '@/mock/friends'
 import type { Friend, FriendRequest } from '@/types/friend'
 
@@ -24,6 +24,22 @@ function formatDate(iso: string): string {
 export default function FriendsPage() {
   const [requests, setRequests] = useState<FriendRequest[]>(mockFriendRequests)
   const [friends, setFriends] = useState<Friend[]>(mockFriends)
+
+  const {
+    paginatedItems: paginatedRequests,
+    page: requestsPage,
+    setPage: setRequestsPage,
+    totalPages: requestsTotalPages,
+    pageSize: requestsPageSize,
+  } = usePagination(requests, undefined, requests.length)
+
+  const {
+    paginatedItems: paginatedFriends,
+    page: friendsPage,
+    setPage: setFriendsPage,
+    totalPages: friendsTotalPages,
+    pageSize: friendsPageSize,
+  } = usePagination(friends, undefined, friends.length)
 
   function handleAccept(request: FriendRequest) {
     setRequests((prev) => prev.filter((r) => r.id !== request.id))
@@ -58,52 +74,52 @@ export default function FriendsPage() {
         )}
       </Typography>
 
-      <Paper elevation={0} sx={{ border: 1, borderColor: 'divider', mb: 4 }}>
-        <List disablePadding>
-          {requests.length === 0 ? (
-            <ListItem sx={{ py: 3, justifyContent: 'center' }}>
-              <Typography color="text.secondary">No pending requests.</Typography>
-            </ListItem>
-          ) : (
-            requests.map((request, index) => (
-              <ListItem
-                key={request.id}
-                divider={index < requests.length - 1}
-                secondaryAction={
-                  <Box sx={{ display: 'flex', gap: 1 }}>
-                    <Button
-                      variant="contained"
-                      size="small"
-                      onClick={() => handleAccept(request)}
-                    >
-                      Accept
-                    </Button>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      color="inherit"
-                      onClick={() => handleDecline(request.id)}
-                    >
-                      Decline
-                    </Button>
-                  </Box>
-                }
-              >
-                <ListItemAvatar>
-                  <Avatar
-                    src={request.from.avatarUrl ?? undefined}
-                    alt={request.from.fullName}
-                  />
-                </ListItemAvatar>
-                <ListItemText
-                  primary={request.from.fullName}
-                  secondary={`${request.from.email} · Sent ${formatDate(request.sentAt)}`}
-                />
-              </ListItem>
-            ))
-          )}
-        </List>
-      </Paper>
+      <PaginatedListCard
+        itemCount={requests.length}
+        paginatedItems={paginatedRequests}
+        page={requestsPage}
+        totalPages={requestsTotalPages}
+        onPageChange={setRequestsPage}
+        pageSize={requestsPageSize}
+        emptyMessage="No pending requests."
+        getItemKey={(request) => request.id}
+        sx={{ mb: 4 }}
+        renderItem={(request, index, pageSize) => (
+          <ListItem
+            divider={index < pageSize - 1}
+            secondaryAction={
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant="contained"
+                  size="small"
+                  onClick={() => handleAccept(request)}
+                >
+                  Accept
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  color="inherit"
+                  onClick={() => handleDecline(request.id)}
+                >
+                  Decline
+                </Button>
+              </Box>
+            }
+          >
+            <ListItemAvatar>
+              <Avatar
+                src={request.from.avatarUrl ?? undefined}
+                alt={request.from.fullName}
+              />
+            </ListItemAvatar>
+            <ListItemText
+              primary={request.from.fullName}
+              secondary={`${request.from.email} · Sent ${formatDate(request.sentAt)}`}
+            />
+          </ListItem>
+        )}
+      />
 
       <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5 }}>
         Your Friends
@@ -112,24 +128,27 @@ export default function FriendsPage() {
         </Typography>
       </Typography>
 
-      <Paper elevation={0} sx={{ border: 1, borderColor: 'divider' }}>
-        <List disablePadding>
-          {friends.map((friend, index) => (
-            <ListItem
-              key={friend.id}
-              divider={index < friends.length - 1}
-            >
-              <ListItemAvatar>
-                <Avatar src={friend.avatarUrl ?? undefined} alt={friend.fullName} />
-              </ListItemAvatar>
-              <ListItemText
-                primary={friend.fullName}
-                secondary={`${friend.email} · Friends since ${formatDate(friend.friendsSince)}`}
-              />
-            </ListItem>
-          ))}
-        </List>
-      </Paper>
+      <PaginatedListCard
+        itemCount={friends.length}
+        paginatedItems={paginatedFriends}
+        page={friendsPage}
+        totalPages={friendsTotalPages}
+        onPageChange={setFriendsPage}
+        pageSize={friendsPageSize}
+        emptyMessage="No friends yet."
+        getItemKey={(friend) => friend.id}
+        renderItem={(friend, index, pageSize) => (
+          <ListItem divider={index < pageSize - 1}>
+            <ListItemAvatar>
+              <Avatar src={friend.avatarUrl ?? undefined} alt={friend.fullName} />
+            </ListItemAvatar>
+            <ListItemText
+              primary={friend.fullName}
+              secondary={`${friend.email} · Friends since ${formatDate(friend.friendsSince)}`}
+            />
+          </ListItem>
+        )}
+      />
     </Box>
   )
 }

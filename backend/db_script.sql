@@ -12,6 +12,8 @@ CREATE TABLE users (
     updated_at      TIMESTAMPTZ(0) NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_users_email ON users(email);
+
 -- =========================================
 -- REFRESH TOKENS
 -- =========================================
@@ -25,8 +27,8 @@ CREATE TABLE refresh_tokens (
     created_at      TIMESTAMPTZ(0) NOT NULL DEFAULT NOW() -- TIMESTAMPTZ(0) co nghia la lam tron ve seconds
 );
 
-CREATE INDEX idx_refresh_tokens_user_id
-    ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_hash_token
+    ON refresh_tokens(hash_token);
 
 -- =========================================
 -- CHAT GROUPS
@@ -59,7 +61,7 @@ CREATE TABLE chat_group_members (
 
     created_by      BIGINT NOT NULL REFERENCES users(id),
 
-    member_role     VARCHAR NOT NULL DEFAULT 'MEMBER',
+    member_role     VARCHAR NOT NULL DEFAULT 'MEMBER', -- OWNER, MEMBER
 
     joined_at       TIMESTAMPTZ(0) NOT NULL DEFAULT NOW(),
 
@@ -67,6 +69,8 @@ CREATE TABLE chat_group_members (
 
     CONSTRAINT chk_chat_group_members_role CHECK (member_role IN ('OWNER', 'MEMBER'))
 );
+
+CREATE INDEX idx_chat_group_members_group_id_joined_at ON chat_group_members(group_id, member_id, joined_at);
 
 -- =========================================
 -- CHAT MESSAGES
@@ -91,6 +95,8 @@ CREATE TABLE chat_messages (
     CONSTRAINT chk_chat_messages_type CHECK (message_type IN ('TEXT', 'IMAGE', 'FILE'))
 );
 
+CREATE INDEX idx_chat_messages_group_id_created_at ON chat_messages(group_id, created_at);
+
 -- =========================================
 -- FRIEND REQUESTS
 -- =========================================
@@ -105,9 +111,9 @@ CREATE TABLE friend_requests (
 
     receiver_id         BIGINT NOT NULL REFERENCES users(id),
 
-    status              VARCHAR NOT NULL DEFAULT 'PENDING',
+    status              VARCHAR NOT NULL DEFAULT 'PENDING', -- PENDING, ACCEPTED, REJECTED
 
-    cooldown_at         TIMESTAMPTZ(0) NOT NULL DEFAULT NOW(),
+    cooldown_at         TIMESTAMPTZ(0), --NOT NULL DEFAULT NOW(),
     created_at          TIMESTAMPTZ(0) NOT NULL DEFAULT NOW(),
 
     CONSTRAINT uq_friend_requests_pair UNIQUE (low_user_id, high_user_id),
@@ -116,5 +122,5 @@ CREATE TABLE friend_requests (
 
 );
 
-CREATE INDEX idx_friend_requests_pair
+CREATE INDEX idx_friend_requests_low_user_id_high_user_id
     ON friend_requests(low_user_id, high_user_id);
