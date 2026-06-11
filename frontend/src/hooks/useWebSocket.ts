@@ -3,6 +3,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import type { ChatMessage } from '@/types/chat'
+import { getDeviceId } from '@/utils/deviceId'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8080'
 
@@ -39,7 +40,10 @@ export function useWebSocket() {
     if (!accessToken || !currentUserId) return
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-    const ws = new WebSocket(`${WS_BASE_URL}/ws?token=${accessToken}`)
+    const deviceId = getDeviceId()
+    const ws = new WebSocket(
+      `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}`,
+    )
     wsRef.current = ws
 
     ws.onmessage = (event: MessageEvent<string>) => {
