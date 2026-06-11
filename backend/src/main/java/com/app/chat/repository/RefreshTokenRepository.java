@@ -26,13 +26,15 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long
 
     @Modifying
     @Query(value = """
-            UPDATE  refresh_tokens r
+            UPDATE refresh_tokens r
             SET hash_token = :hash,
                 created_at = :createdAt
             WHERE r.user_id = :userId
+              AND r.device_id = :deviceId
     """, nativeQuery = true)
-    int updateByUserId(
+    int updateByUserIdAndDeviceId(
             @Param("userId") Long userId,
+            @Param("deviceId") String deviceId,
             @Param("hash") String hash,
             @Param("createdAt") OffsetDateTime createdAt
     );

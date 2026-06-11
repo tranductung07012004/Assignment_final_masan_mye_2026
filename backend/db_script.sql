@@ -20,11 +20,15 @@ CREATE INDEX idx_users_email ON users(email);
 CREATE TABLE refresh_tokens (
     id              BIGSERIAL PRIMARY KEY,
 
-    user_id         BIGINT NOT NULL UNIQUE REFERENCES users(id),
+    user_id         BIGINT NOT NULL REFERENCES users(id),
+
+    device_id       VARCHAR NOT NULL,  -- browser client (react app) tự sinh ra UUID và save vào local storage, rồi gửi lên backend lưu. 
 
     hash_token      VARCHAR NOT NULL UNIQUE,
 
-    created_at      TIMESTAMPTZ(0) NOT NULL DEFAULT NOW() -- TIMESTAMPTZ(0) co nghia la lam tron ve seconds
+    created_at      TIMESTAMPTZ(0) NOT NULL DEFAULT NOW(), -- TIMESTAMPTZ(0) co nghia la lam tron ve seconds
+
+    CONSTRAINT uq_user_id_devic_id UNIQUE (user_id, device_id) --- Đảm bảo 1 browser (hay 1 thiết bị) chỉ có 1 refresh token
 );
 
 CREATE INDEX idx_refresh_tokens_hash_token

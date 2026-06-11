@@ -16,6 +16,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
+    public static final String DEVICE_ID_HEADER = "X-Device-Id";
+
     private final AuthServiceInterface authService;
     private final Integer cookieExpiration;
 
@@ -64,6 +66,8 @@ public class AuthController {
     public ResponseEntity<ApiResponse<?>> logout(
             @CookieValue(value = "chat_app", required = false)
             String refreshToken,
+            @RequestHeader(value = DEVICE_ID_HEADER, required = false)
+            String deviceId,
             HttpServletResponse res
             ) {
 
@@ -81,6 +85,16 @@ public class AuthController {
                             Map.of("errorCode", ErrorCode.REFRESH_TOKEN_MISSING)
                     ));
         }
+
+        if (deviceId == null || deviceId.isBlank()) {
+            return ResponseEntity
+                    .status(400)
+                    .body(new ApiResponse<>(
+                            ErrorCode.DEVICE_ID_MISSING.getMessage(),
+                            Map.of("errorCode", ErrorCode.DEVICE_ID_MISSING)
+                    ));
+        }
+
         Cookie cookie = new Cookie("chat_app", null);
 
         cookie.setHttpOnly(true);
@@ -88,7 +102,7 @@ public class AuthController {
         cookie.setPath("/");
         res.addCookie(cookie);
 
-        this.authService.logout(SecurityUtil.getCurrentUserId(), refreshToken);
+        this.authService.logout(SecurityUtil.getCurrentUserId(), refreshToken, deviceId);
 
         return ResponseEntity
                 .status(201)
@@ -96,15 +110,28 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<?> getAccessToken(@CookieValue(value = "chat_app", required = false) String refreshToken,
-                                            HttpServletResponse res) {
+    public ResponseEntity<?> getAccessToken(
+            @CookieValue(value = "chat_app", required = false) String refreshToken,
+            @RequestHeader(value = DEVICE_ID_HEADER, required = false) String deviceId,
+            HttpServletResponse res
+    ) {
         if (refreshToken == null) {
             return ResponseEntity
                     .status(401)
                     .body(new ApiResponse<>("Refresh token in cookie is missing",
                             Map.of("errorCode", "REFRESH_TOKEN_MISSING")));
         }
-        TokenPair token = this.authService.generateAccessToken(refreshToken);
+
+        if (deviceId == null || deviceId.isBlank()) {
+            return ResponseEntity
+                    .status(400)
+                    .body(new ApiResponse<>(
+                            ErrorCode.DEVICE_ID_MISSING.getMessage(),
+                            Map.of("errorCode", ErrorCode.DEVICE_ID_MISSING)
+                    ));
+        }
+
+        TokenPair token = this.authService.generateAccessToken(refreshToken, deviceId);
 
         Cookie cookie = new Cookie("chat_app", token.getRefreshToken());
         cookie.setHttpOnly(true);

@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/stores/authStore'
 import type { ApiResponse } from '@/types/api'
+import { DEVICE_ID_HEADER, getDeviceId } from '@/utils/deviceId'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 
@@ -21,6 +22,9 @@ export function refreshAccessToken(): Promise<string | null> {
     refreshPromise = fetch(`${API_BASE_URL}/api/auth/refresh`, {
       method: 'POST',
       credentials: 'include',
+      headers: {
+        [DEVICE_ID_HEADER]: getDeviceId(),
+      },
     })
       .then(async (response) => {
         if (!response.ok) return null

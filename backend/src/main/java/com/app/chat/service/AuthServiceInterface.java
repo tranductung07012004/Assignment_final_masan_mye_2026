@@ -10,7 +10,7 @@ public interface AuthServiceInterface {
 
     TokenPair login(LoginRequest req);
 
-    void logout(Long userId, String refreshToken);
+    void logout(Long userId, String refreshToken, String deviceId);
 
-    TokenPair generateAccessToken(String token);
+    TokenPair generateAccessToken(String refreshToken, String deviceId);
 }

@@ -5,11 +5,17 @@ import type {
   RegisterRequest,
   RegisterResponse,
 } from '@/types/auth'
+import { DEVICE_ID_HEADER, getDeviceId } from '@/utils/deviceId'
 
-export async function login(payload: LoginRequest): Promise<string> {
+export async function login(
+  payload: Omit<LoginRequest, 'deviceId'>,
+): Promise<string> {
   const response = await apiClient<ApiResponse<string>>('/api/auth/login', {
     method: 'POST',
-    body: payload,
+    body: {
+      ...payload,
+      deviceId: getDeviceId(),
+    },
   })
 
   return response.data
@@ -32,5 +38,8 @@ export async function register(
 export async function logout(): Promise<void> {
   await apiClient<ApiResponse<null>>('/api/auth/logout', {
     method: 'POST',
+    headers: {
+      [DEVICE_ID_HEADER]: getDeviceId(),
+    },
   })
 }

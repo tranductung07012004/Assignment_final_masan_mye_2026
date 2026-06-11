@@ -125,6 +125,16 @@
       el.className = 'status ' + (ok === true ? 'ok' : ok === false ? 'err' : '');
     }
 
+    function getDeviceId() {
+      const key = 'device_id';
+      let deviceId = localStorage.getItem(key);
+      if (!deviceId) {
+        deviceId = crypto.randomUUID();
+        localStorage.setItem(key, deviceId);
+      }
+      return deviceId;
+    }
+
     function authHeaders(extra = {}) {
       return {
         'Content-Type': 'application/json',
@@ -164,7 +174,7 @@
         const res = await fetch(`${SERVER}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, deviceId: getDeviceId() }),
           credentials: 'include',
         });
         const json = await res.json();

@@ -24,6 +24,9 @@ public class RefreshToken {
     @Column(name = "user_id")
     private Long userId;
 
+    @Column(name = "device_id")
+    private String deviceId;
+
     @Column(name = "hash_token")
     private String hashToken;
 

@@ -39,6 +39,7 @@ public class AuthServiceImpl implements AuthServiceInterface {
         this.encoder = injectedEncoder;
         this.jwtUtil = injectedJwtUtil;
     }
+
     @Override
     @Transactional
     public TokenPair login(LoginRequest req) {
@@ -55,8 +56,9 @@ public class AuthServiceImpl implements AuthServiceInterface {
         String hashToken = HashUtil.hashSHA256(refreshToken);
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
 
-        int updated = this.refreshTokenRepository.updateByUserId(
+        int updated = this.refreshTokenRepository.updateByUserIdAndDeviceId(
                 user.getId(),
+                req.getDeviceId(),
                 hashToken,
                 now
         );
@@ -64,6 +66,7 @@ public class AuthServiceImpl implements AuthServiceInterface {
         if (updated == 0) {
             RefreshToken obj = RefreshToken.builder()
                     .userId(user.getId())
+                    .deviceId(req.getDeviceId())
                     .hashToken(hashToken)
                     .build();
             this.refreshTokenRepository.save(obj);
@@ -98,18 +101,27 @@ public class AuthServiceImpl implements AuthServiceInterface {
 
     @Override
     @Transactional
-    public void logout(Long userId, String refreshToken) {
+    public void logout(Long userId, String refreshToken, String deviceId) {
         String hashRefreshToken = HashUtil.hashSHA256(refreshToken);
-        this.refreshTokenRepository
+        RefreshToken storedToken = this.refreshTokenRepository
                 .findByHashToken(hashRefreshToken).orElseThrow(
                         () -> new ApplicationException(ErrorCode.REFRESH_TOKEN_DOES_NOT_EXISTS_IN_DB)
                 );
+
+        if (!storedToken.getUserId().equals(userId)) {
+            throw new ApplicationException(ErrorCode.REFRESH_TOKEN_DOES_NOT_EXISTS_IN_DB);
+        }
+
+        if (!storedToken.getDeviceId().equals(deviceId)) {
+            throw new ApplicationException(ErrorCode.DEVICE_ID_MISMATCH);
+        }
+
         this.refreshTokenRepository.deleteByHashToken(hashRefreshToken);
     }
 
     @Override
     @Transactional
-    public TokenPair generateAccessToken(String refreshTokenInCookie) {
+    public TokenPair generateAccessToken(String refreshTokenInCookie, String deviceId) {
         if (!jwtUtil.validateToken(refreshTokenInCookie)) {
             throw new ApplicationException(ErrorCode.INVALID_TOKEN);
         }
@@ -119,6 +131,10 @@ public class AuthServiceImpl implements AuthServiceInterface {
         RefreshToken oldToken = this.refreshTokenRepository
                 .findByHashToken(hashInputRefreshTokenInCookie)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.REFRESH_TOKEN_DOES_NOT_EXISTS_IN_DB));
+
+        if (!oldToken.getDeviceId().equals(deviceId)) {
+            throw new ApplicationException(ErrorCode.DEVICE_ID_MISMATCH);
+        }
 
         User userObj = this.userRepository.findById(oldToken.getUserId())
                 .orElseThrow(() -> new
@@ -135,6 +151,7 @@ public class AuthServiceImpl implements AuthServiceInterface {
 
         RefreshToken newRefreshTokenObject = RefreshToken.builder()
                 .userId(oldToken.getUserId())
+                .deviceId(oldToken.getDeviceId())
                 .hashToken(HashUtil.hashSHA256(newRefreshTokenString))
                 .build();
 

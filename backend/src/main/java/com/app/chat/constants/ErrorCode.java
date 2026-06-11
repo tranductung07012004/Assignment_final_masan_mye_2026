@@ -29,6 +29,8 @@ public enum ErrorCode {
     INVALID_TOKEN("Invalid token", 401),
     REFRESH_TOKEN_MISSING("Refresh token is missing", 401),
     REFRESH_TOKEN_DOES_NOT_EXISTS_IN_DB("Refresh token does not exits in db", 401),
+    DEVICE_ID_MISSING("Device id is missing", 400),
+    DEVICE_ID_MISMATCH("Device id does not match refresh token", 401),
     PASSWORD_NOT_CORRECT("Password does not match", 400),
     OLD_PASSWORD_NOT_CORRECT("Old password is not correct", 400),
     OLD_PASSWORD_REQUIRED("Old password is required when changing password", 400),
