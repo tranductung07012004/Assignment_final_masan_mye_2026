@@ -201,7 +201,7 @@
         setStatus('WebSocket đã mở', true);
         return;
       }
-      const url = `${WS_BASE}?token=${encodeURIComponent(accessToken)}`;
+      const url = `${WS_BASE}?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(getDeviceId())}`;
       ws = new WebSocket(url);
 
       ws.onopen = () => {

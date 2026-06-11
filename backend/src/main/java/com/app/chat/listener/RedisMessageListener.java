@@ -52,6 +52,6 @@ public class RedisMessageListener implements MessageListener {
 
         String userId = channel.substring(USER_CHANNEL_PREFIX.length());
         String payload = new String(message.getBody(), StandardCharsets.UTF_8);
-        chatHandler.pushToLocalSession(userId, payload);
+        this.chatHandler.pushMessageToLocalWebSocketSession(userId, payload);
     }
 }

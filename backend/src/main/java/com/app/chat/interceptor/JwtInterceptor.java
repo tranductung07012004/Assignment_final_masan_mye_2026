@@ -9,6 +9,7 @@ import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.Map;
 
@@ -28,22 +29,35 @@ public class JwtInterceptor implements HandshakeInterceptor {
             @NonNull ServerHttpResponse res,
             @NonNull WebSocketHandler wsHandler,
             @NonNull Map<String, Object> attributes) {
-        String query = req.getURI().getQuery();
+        Map<String, String> queryParams = UriComponentsBuilder.fromUri(req.getURI())
+                .build()
+                .getQueryParams()
+                .toSingleValueMap();
 
-        if (query == null || !query.startsWith("token=")) {
+        String token = queryParams.get("token");
+        String deviceId = queryParams.get("deviceId");
+
+        if (token == null || token.isBlank()) {
             // Chỉ set statusCode chỗ này vì trong websocket connect từ frontend thì status code là thứ duy nhất có ý nghĩa
             // khác với HeaderAuthenticationFilter có body trong response vì nó là http method.
             res.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
-        String token = query.substring("token=".length());
+
+        if (deviceId == null || deviceId.isBlank()) {
+            res.setStatusCode(HttpStatus.BAD_REQUEST);
+            return false;
+        }
+
         if (!jwtUtil.validateToken(token)) {
             res.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
+
         // Đặt userId vào session attributes để handler dùng sau
         String userId = jwtUtil.extractUserId(token);
         attributes.put("userId", userId);
+        attributes.put("deviceId", deviceId);
         return true;
     }
 

@@ -23,6 +23,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Component
@@ -33,7 +34,8 @@ public class ChatHandler extends TextWebSocketHandler {
 
     // Lý do vì sao có 2 cái này notion:
     // https://www.notion.so/Gi-i-th-ch-l-do-cho-s-t-n-t-i-c-a-localSessions-v-userChannels-3792a77150888037b0b8fab8b668c1a4?source=copy_link
-    private final ConcurrentHashMap<String, WebSocketSession> localSessions;
+    // sessionsByUser thay cho localSessions cũ (userId -> session), giờ là userId -> (deviceId -> session) để support multi-device
+    private final ConcurrentHashMap<String, ConcurrentHashMap<String, WebSocketSession>> sessionsByUser;
     private final ConcurrentHashMap<String, ChannelTopic> userChannels;
 
     private final StringRedisTemplate redisTemplate;
@@ -57,7 +59,7 @@ public class ChatHandler extends TextWebSocketHandler {
         this.chatService = injectedChatService;
 
         // the self constructed properties
-        this.localSessions = new ConcurrentHashMap<>();
+        this.sessionsByUser = new ConcurrentHashMap<>();
         this.userChannels = new ConcurrentHashMap<>();
     }
 
@@ -68,11 +70,33 @@ public class ChatHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
         String userId = (String) session.getAttributes().get("userId");
-        this.localSessions.put(userId, session);
+        String deviceId = (String) session.getAttributes().get("deviceId");
 
-        ChannelTopic topic = new ChannelTopic(userChannel(userId));
-        this.userChannels.put(userId, topic);
-        this.listenerContainer.addMessageListener(redisMessageListener, topic);
+        // computeIfAbsent co nghia la neu khong co thi insert cai lambda vao map, neu co roi thi lay value ra dung
+        // computeIfAbsent thi thread-safe
+        ConcurrentHashMap<String, WebSocketSession> deviceSessions =
+                this.sessionsByUser.computeIfAbsent(userId, i -> new ConcurrentHashMap<>());
+
+        boolean firstDeviceOfUserToConnect = deviceSessions.isEmpty();
+
+        // Cai nay de xoa cai old session
+        WebSocketSession existingSession = deviceSessions.get(deviceId);
+        if (existingSession != null && existingSession.isOpen() && !existingSession.getId().equals(session.getId())) {
+            try {
+                existingSession.close(CloseStatus.NORMAL);
+            } catch (IOException e) {
+                logger.warn("Failed to close previous WebSocket for userId={}, deviceId={}", userId, deviceId, e);
+            }
+        }
+
+        deviceSessions.put(deviceId, session);
+
+        // cai nay la de SUBCRIBE vao redis pub sub channel lan dau tien
+        if (firstDeviceOfUserToConnect) {
+            ChannelTopic topic = new ChannelTopic(userChannel(userId));
+            this.userChannels.put(userId, topic);
+            this.listenerContainer.addMessageListener(redisMessageListener, topic);
+        }
     }
 
     @Override
@@ -103,12 +127,28 @@ public class ChatHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
-        String userId =  session.getAttributes().get("userId").toString();
-        this.localSessions.remove(userId);
+        String userId = session.getAttributes().get("userId").toString();
+        String deviceId = session.getAttributes().get("deviceId").toString();
 
-        ChannelTopic topic = this.userChannels.remove(userId);
-        if (topic != null) {
-            this.listenerContainer.removeMessageListener(redisMessageListener, topic);
+        ConcurrentHashMap<String, WebSocketSession> deviceSessions = this.sessionsByUser.get(userId);
+        if (deviceSessions == null) {
+            return;
+        }
+
+        deviceSessions.remove(deviceId, session);
+
+        // Remove xong ma thay deviceSessions rong,
+        // thi co nghia la user nay ngung connect tren moi device
+        // remove luon sessionByUser.
+        // remove luon userChannels.
+        // va remove channel trong redis pubsub
+        if (deviceSessions.isEmpty()) {
+            this.sessionsByUser.remove(userId, deviceSessions);
+
+            ChannelTopic topic = this.userChannels.remove(userId);
+            if (topic != null) {
+                this.listenerContainer.removeMessageListener(redisMessageListener, topic);
+            }
         }
     }
 
@@ -152,7 +192,7 @@ public class ChatHandler extends TextWebSocketHandler {
         request.setContent(node.get("content").asText());
 
         try {
-            // Chỗ này lưu vào database, có khả năng gây nghẽn vì write DB take time 
+            // Chỗ này lưu vào database, có khả năng gây nghẽn vì write DB take time
             // Có thể dùng message queue thay thế
             GroupMessageResult result = this.chatService.sendGroupMessage(
                     Long.parseLong(senderId),
@@ -169,13 +209,29 @@ public class ChatHandler extends TextWebSocketHandler {
         }
     }
 
-    public void pushToLocalSession(String userId, String payload) {
-        WebSocketSession session = this.localSessions.get(userId);
-        if (session != null && session.isOpen()) {
+    public void pushMessageToLocalWebSocketSession(String userId, String payload) {
+        ConcurrentHashMap<String, WebSocketSession> deviceSessions = this.sessionsByUser.get(userId);
+        if (deviceSessions == null || deviceSessions.isEmpty()) {
+            logger.warn("This userId: {}does not have any device online, so receiver will not receive message", userId);
+            return;
+        }
+
+        for (Map.Entry<String, WebSocketSession> entry : deviceSessions.entrySet()) {
+            WebSocketSession session = entry.getValue();
+            if (session == null || !session.isOpen()) {
+                logger.warn("The websocket session of the deviceId {} and userId {} is null or closed", entry.getKey(), userId);
+                continue;
+            }
+
             try {
                 session.sendMessage(new TextMessage(payload));
             } catch (IOException e) {
-                logger.error("Failed to send message to userId: {}", userId, e);
+                logger.error(
+                        "Failed to send message to userId={}, deviceId={}",
+                        userId,
+                        entry.getKey(),
+                        e
+                );
             }
         }
     }
