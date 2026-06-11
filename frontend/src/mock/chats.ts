@@ -52,110 +52,45 @@ export const mockChatList: ChatListItem[] = [
   },
 ]
 
+function msg(
+  id: number,
+  groupId: number,
+  senderId: number,
+  senderName: string,
+  content: string,
+  sentAt: string,
+  isOwn: boolean,
+): ChatMessage {
+  return { id, groupId, senderId, senderName, senderAvatarUrl: null, content, sentAt, isOwn, isDeleted: false }
+}
+
 export const mockMessagesByGroupId: Record<number, ChatMessage[]> = {
   1: [
-    {
-      id: 1,
-      senderId: 2,
-      senderName: 'Sarah Chen',
-      content: 'Hey Alex, are we still on for lunch?',
-      sentAt: '2026-06-08T09:00:00Z',
-      isOwn: false,
-    },
-    {
-      id: 2,
-      senderId: CURRENT_USER_ID,
-      senderName: 'Alex Morgan',
-      content: 'Yes! How about noon at the usual place?',
-      sentAt: '2026-06-08T09:05:00Z',
-      isOwn: true,
-    },
-    {
-      id: 3,
-      senderId: 2,
-      senderName: 'Sarah Chen',
-      content: 'Perfect. See you at the meeting tomorrow!',
-      sentAt: '2026-06-08T10:30:00Z',
-      isOwn: false,
-    },
+    msg(1, 1, 2, 'Sarah Chen', 'Hey Alex, are we still on for lunch?', '2026-06-08T09:00:00Z', false),
+    msg(2, 1, CURRENT_USER_ID, 'Alex Morgan', 'Yes! How about noon at the usual place?', '2026-06-08T09:05:00Z', true),
+    msg(3, 1, 2, 'Sarah Chen', 'Perfect. See you at the meeting tomorrow!', '2026-06-08T10:30:00Z', false),
   ],
   2: [
-    {
-      id: 4,
-      senderId: 3,
-      senderName: 'James',
-      content: 'Starting the deploy now.',
-      sentAt: '2026-06-08T08:50:00Z',
-      isOwn: false,
-    },
-    {
-      id: 5,
-      senderId: 3,
-      senderName: 'James',
-      content: 'The deploy is done.',
-      sentAt: '2026-06-08T09:15:00Z',
-      isOwn: false,
-    },
+    msg(4, 2, 3, 'James', 'Starting the deploy now.', '2026-06-08T08:50:00Z', false),
+    msg(5, 2, 3, 'James', 'The deploy is done.', '2026-06-08T09:15:00Z', false),
   ],
   3: [
-    {
-      id: 6,
-      senderId: 4,
-      senderName: 'Michael Brooks',
-      content: 'Thanks for the help!',
-      sentAt: '2026-06-07T18:45:00Z',
-      isOwn: false,
-    },
+    msg(6, 3, 4, 'Michael Brooks', 'Thanks for the help!', '2026-06-07T18:45:00Z', false),
   ],
   4: [
-    {
-      id: 7,
-      senderId: 5,
-      senderName: 'Emma Watson',
-      content: 'Who is bringing snacks?',
-      sentAt: '2026-06-07T14:20:00Z',
-      isOwn: false,
-    },
+    msg(7, 4, 5, 'Emma Watson', 'Who is bringing snacks?', '2026-06-07T14:20:00Z', false),
   ],
   5: [
-    {
-      id: 8,
-      senderId: 2,
-      senderName: 'Sarah Chen',
-      content: 'Has everyone finished chapter 4?',
-      sentAt: '2026-06-06T20:00:00Z',
-      isOwn: false,
-    },
+    msg(8, 5, 2, 'Sarah Chen', 'Has everyone finished chapter 4?', '2026-06-06T20:00:00Z', false),
   ],
   6: [
-    {
-      id: 9,
-      senderId: 5,
-      senderName: 'Emma Watson',
-      content: 'See you on Saturday!',
-      sentAt: '2026-06-06T15:00:00Z',
-      isOwn: false,
-    },
+    msg(9, 6, 5, 'Emma Watson', 'See you on Saturday!', '2026-06-06T15:00:00Z', false),
   ],
   7: [
-    {
-      id: 10,
-      senderId: 2,
-      senderName: 'Sarah Chen',
-      content: 'Mockups are ready for review.',
-      sentAt: '2026-06-05T11:30:00Z',
-      isOwn: false,
-    },
+    msg(10, 7, 2, 'Sarah Chen', 'Mockups are ready for review.', '2026-06-05T11:30:00Z', false),
   ],
   8: [
-    {
-      id: 11,
-      senderId: 4,
-      senderName: 'Michael Brooks',
-      content: 'Quiz is on Friday.',
-      sentAt: '2026-06-04T19:00:00Z',
-      isOwn: false,
-    },
+    msg(11, 8, 4, 'Michael Brooks', 'Quiz is on Friday.', '2026-06-04T19:00:00Z', false),
   ],
 }
 

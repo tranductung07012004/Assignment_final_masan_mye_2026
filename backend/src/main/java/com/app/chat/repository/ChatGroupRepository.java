@@ -41,7 +41,8 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
                 END AS title,
                 CASE
                     WHEN cg.type = 'GROUP' THEN cg.avatar_url ELSE peer.avatar_url
-                END AS avatarUrl
+                END AS avatarUrl,
+                peer_member.member_id AS peerId
 
             FROM chat_groups cg
 

@@ -35,6 +35,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     if (isFromMock) {
       set({
         profile: {
+          id: get().profile?.id ?? 0,
           email: payload.email,
           fullName: payload.fullName,
           avatarUrl: payload.avatarUrl ?? null,
@@ -47,6 +48,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
     const updated = await updateProfileApi(payload)
     set({
       profile: {
+        id: updated.userId,
         email: updated.email,
         fullName: updated.fullName,
         avatarUrl: updated.avatarUrl,

@@ -97,6 +97,8 @@ CREATE TABLE chat_messages (
 
 CREATE INDEX idx_chat_messages_group_id_created_at ON chat_messages(group_id, created_at);
 
+CREATE INDEX idx_chat_messages_group_id_id ON chat_messages(group_id, id DESC);
+
 -- =========================================
 -- FRIEND REQUESTS
 -- =========================================

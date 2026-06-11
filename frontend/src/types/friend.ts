@@ -1,8 +1,18 @@
+export type FriendRequestStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED'
+
 export type UserSummary = {
   id: number
   fullName: string
-  email: string
   avatarUrl: string | null
+}
+
+export type SearchUser = {
+  id: number
+  fullName: string
+  avatarUrl: string | null
+  friendRequestStatus: FriendRequestStatus | null
+  friendRequestSenderId: number | null
+  cooldownAt: string | null
 }
 
 export type FriendRequest = {
@@ -11,6 +21,9 @@ export type FriendRequest = {
   sentAt: string
 }
 
-export type Friend = UserSummary & {
-  friendsSince: string
+export type Friend = {
+  id: number
+  fullName: string
+  avatarUrl: string | null
+  createdAt: string
 }

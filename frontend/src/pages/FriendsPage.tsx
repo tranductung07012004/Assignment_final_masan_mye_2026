@@ -48,9 +48,8 @@ export default function FriendsPage() {
       {
         id: request.from.id,
         fullName: request.from.fullName,
-        email: request.from.email,
         avatarUrl: request.from.avatarUrl,
-        friendsSince: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       },
     ])
   }
@@ -115,7 +114,7 @@ export default function FriendsPage() {
             </ListItemAvatar>
             <ListItemText
               primary={request.from.fullName}
-              secondary={`${request.from.email} · Sent ${formatDate(request.sentAt)}`}
+              secondary={`Sent ${formatDate(request.sentAt)}`}
             />
           </ListItem>
         )}
@@ -144,7 +143,7 @@ export default function FriendsPage() {
             </ListItemAvatar>
             <ListItemText
               primary={friend.fullName}
-              secondary={`${friend.email} · Friends since ${formatDate(friend.friendsSince)}`}
+              secondary={`Friends since ${formatDate(friend.createdAt)}`}
             />
           </ListItem>
         )}

@@ -5,9 +5,11 @@ import com.app.chat.dto.AddGroupMemberRequest;
 import com.app.chat.dto.ChatListItemResponse;
 import com.app.chat.dto.ChatMessageResponse;
 import com.app.chat.dto.CreateGroupRequest;
+import com.app.chat.dto.FriendResponse;
 import com.app.chat.dto.GroupInfoResponse;
 import com.app.chat.dto.GroupMemberResponse;
 import com.app.chat.dto.GroupMessageResult;
+import com.app.chat.dto.MessageCursorPageResponse;
 import com.app.chat.dto.SendDirectMessageRequest;
 import com.app.chat.dto.SendGroupMessageRequest;
 import com.app.chat.entity.ChatGroup;
@@ -18,6 +20,7 @@ import com.app.chat.exception.ApplicationException;
 import com.app.chat.repository.ChatGroupMemberRepository;
 import com.app.chat.repository.ChatGroupRepository;
 import com.app.chat.repository.ChatMessageRepository;
+import com.app.chat.repository.FriendRequestRepository;
 import com.app.chat.repository.UserRepository;
 import com.app.chat.service.ChatServiceInterface;
 import org.slf4j.Logger;
@@ -27,15 +30,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.OffsetDateTime;
-import java.time.temporal.ChronoUnit;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @Service
 public class ChatServiceImpl implements ChatServiceInterface {
     private static final int GROUP_MEMBER_LIMIT = 10;
+    private static final int GROUP_MEMBER_MINIMUM = 3;
 
     private static final Logger logger = LoggerFactory.getLogger(ChatServiceImpl.class);
 
@@ -43,17 +47,20 @@ public class ChatServiceImpl implements ChatServiceInterface {
     private final ChatGroupMemberRepository chatGroupMemberRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
+    private final FriendRequestRepository friendRequestRepository;
 
     public ChatServiceImpl(
             ChatGroupRepository injectedChatGroupRepository,
             ChatGroupMemberRepository injectedChatGroupMemberRepository,
             ChatMessageRepository injectedChatMessageRepository,
-            UserRepository injectedUserRepository
+            UserRepository injectedUserRepository,
+            FriendRequestRepository injectedFriendRequestRepository
     ) {
         this.chatGroupRepository = injectedChatGroupRepository;
         this.chatGroupMemberRepository = injectedChatGroupMemberRepository;
         this.chatMessageRepository = injectedChatMessageRepository;
         this.userRepository = injectedUserRepository;
+        this.friendRequestRepository = injectedFriendRequestRepository;
     }
 
     @Override
@@ -79,6 +86,33 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .type(item.getType())
                 .title(item.getTitle())
                 .avatarUrl(item.getAvatarUrl())
+                .peerId(item.getPeerId())
+                .build()
+        );
+    }
+
+    @Override
+    public Page<FriendResponse> searchFriends(Long currentUserId, String keyword, Pageable pageable) {
+        if (currentUserId == null) {
+            throw new ApplicationException(ErrorCode.CURRENT_USER_ID_FROM_TOKEN_IS_NULL);
+        }
+
+        this.userRepository.findUserById(currentUserId)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
+
+        String normalizedKeyword = keyword == null ? "%" : "%" + keyword.trim() + "%";
+
+        return this.friendRequestRepository.searchFriends(
+                currentUserId,
+                normalizedKeyword,
+                pageable
+        ).map(item -> FriendResponse.builder()
+                .id(item.getId())
+                .fullName(item.getFullName())
+                .avatarUrl(item.getAvatarUrl())
+                .createdAt(item.getCreatedAt() == null
+                        ? null
+                        : item.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .build()
         );
     }
@@ -152,14 +186,22 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .toList();
 
         // +1 for the creator
-        if (distinctOtherMembers.size() + 1 > GROUP_MEMBER_LIMIT) {
+        int totalMembers = distinctOtherMembers.size() + 1;
+        if (totalMembers < GROUP_MEMBER_MINIMUM) {
+            throw new ApplicationException(ErrorCode.GROUP_MEMBER_MINIMUM_NOT_MET);
+        }
+        if (totalMembers > GROUP_MEMBER_LIMIT) {
             throw new ApplicationException(ErrorCode.GROUP_MEMBER_LIMIT_EXCEEDED);
         }
 
-        for (Long memberId : distinctOtherMembers) {
-            this.userRepository.findUserById(memberId)
-                    .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND,
-                            "User with id: " + memberId + " not found"));
+        List<Long> foundIds = this.userRepository.findAllByIds(distinctOtherMembers)
+                .stream().map(u -> u.getId()).toList();
+        List<Long> missingIds = distinctOtherMembers.stream()
+                .filter(id -> !foundIds.contains(id))
+                .toList();
+        if (!missingIds.isEmpty()) {
+            throw new ApplicationException(ErrorCode.USER_NOT_FOUND,
+                    "User(s) not found: " + missingIds);
         }
 
         ChatGroup group = this.chatGroupRepository.save(ChatGroup.builder()
@@ -169,23 +211,22 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .createdBy(creatorId)
                 .build());
 
-        // Save creator as OWNER
-       this.chatGroupMemberRepository.save(ChatGroupMember.builder()
+        List<ChatGroupMember> memberships = new ArrayList<>();
+        memberships.add(ChatGroupMember.builder()
                 .groupId(group.getId())
                 .memberId(creatorId)
                 .createdBy(creatorId)
                 .memberRole("OWNER")
                 .build());
-
-        // Save remaining members as MEMBER
         for (Long memberId : distinctOtherMembers) {
-            this.chatGroupMemberRepository.save(ChatGroupMember.builder()
+            memberships.add(ChatGroupMember.builder()
                     .groupId(group.getId())
                     .memberId(memberId)
                     .createdBy(creatorId)
                     .memberRole("MEMBER")
                     .build());
         }
+        this.chatGroupMemberRepository.saveAll(memberships);
 
         return buildGroupInfoResponse(group);
     }
@@ -311,7 +352,60 @@ public class ChatServiceImpl implements ChatServiceInterface {
         return new GroupMessageResult(toChatMessageResponse(savedMessage, sender), memberIds);
     }
 
-    // ── helpers ──────────────────────────────────────────────────────────────
+    @Override
+    public MessageCursorPageResponse loadMessages(Long requesterId, Long groupId, Long beforeId, int size) {
+        if (requesterId == null) {
+            throw new ApplicationException(ErrorCode.CURRENT_USER_ID_FROM_TOKEN_IS_NULL);
+        }
+
+        findAnyGroupByIdOrThrow(groupId);
+        checkIfThisIsMemberOrOwnerOfGroupOrElseThrow(groupId, requesterId);
+
+        int fetchSize = size + 1;
+        List<ChatMessage> raw = chatMessageRepository.findByGroupIdBeforeIdDesc(groupId, beforeId, fetchSize);
+
+        boolean hasMore = raw.size() == fetchSize;
+        List<ChatMessage> page = hasMore ? raw.subList(0, size) : raw;
+
+        List<Long> senderIds = page.stream().map(ChatMessage::getSenderId).distinct().toList();
+        Map<Long, User> userMap = userRepository.findAllByIds(senderIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(User::getId, u -> u));
+
+        List<ChatMessageResponse> responses = page.stream()
+                .map(msg -> {
+                    User sender = userMap.get(msg.getSenderId());
+                    if (msg.getDeletedAt() != null) {
+                        ChatMessageResponse r = new ChatMessageResponse();
+                        r.setId(msg.getId());
+                        r.setGroupId(msg.getGroupId());
+                        r.setSenderMemberId(msg.getSenderId());
+                        r.setSenderFullName(sender != null ? sender.getFullName() : null);
+                        r.setSenderAvatarUrl(sender != null ? sender.getAvatarUrl() : null);
+                        r.setContent(null);
+                        r.setMessageType(msg.getMessageType());
+                        r.setCreatedAt(msg.getCreatedAt());
+                        r.setEditedAt(msg.getEditedAt());
+                        r.setDeletedAt(msg.getDeletedAt());
+                        return r;
+                    }
+                    return sender != null
+                            ? toChatMessageResponse(msg, sender)
+                            : toChatMessageResponseWithoutSender(msg);
+                })
+                .toList();
+
+        Long nextCursor = hasMore ? page.get(page.size() - 1).getId() : null;
+        return MessageCursorPageResponse.builder()
+                .messages(responses)
+                .nextCursor(nextCursor)
+                .build();
+    }
+
+    private ChatGroup findAnyGroupByIdOrThrow(Long groupId) {
+        return this.chatGroupRepository.findById(groupId)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.GROUP_NOT_FOUND));
+    }
 
     private ChatGroup checkIfGroupExistedOrThrow(Long groupId) {
         return this.chatGroupRepository.findById(groupId)
@@ -360,6 +454,20 @@ public class ChatServiceImpl implements ChatServiceInterface {
         response.setSenderMemberId(message.getSenderId());
         response.setSenderFullName(sender.getFullName());
         response.setSenderAvatarUrl(sender.getAvatarUrl());
+        response.setContent(message.getContent());
+        response.setMessageType(message.getMessageType());
+        response.setMetadata(message.getMetadata());
+        response.setCreatedAt(message.getCreatedAt());
+        response.setEditedAt(message.getEditedAt());
+        response.setDeletedAt(message.getDeletedAt());
+        return response;
+    }
+
+    private ChatMessageResponse toChatMessageResponseWithoutSender(ChatMessage message) {
+        ChatMessageResponse response = new ChatMessageResponse();
+        response.setId(message.getId());
+        response.setGroupId(message.getGroupId());
+        response.setSenderMemberId(message.getSenderId());
         response.setContent(message.getContent());
         response.setMessageType(message.getMessageType());
         response.setMetadata(message.getMetadata());

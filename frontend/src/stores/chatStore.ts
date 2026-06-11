@@ -19,6 +19,7 @@ import { create } from 'zustand'
 type ChatState = {
   chats: ChatListItem[]
   messagesByGroupId: Record<number, ChatMessage[]>
+  nextCursorByGroupId: Record<number, number | null>
   membersByGroupId: Record<number, GroupMember[]>
   selectedGroupId: number | null
   nextGroupId: number
@@ -34,6 +35,9 @@ type ChatState = {
   removeMemberFromGroup: (groupId: number, memberId: number) => void
   leaveGroup: (groupId: number) => void
   getAddableFriends: (groupId: number) => typeof mockFriends
+  setMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
+  prependMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
+  appendMessage: (message: ChatMessage) => void
 }
 
 function getPrivateChatPeerId(chat: ChatListItem, members: GroupMember[]): number | null {
@@ -51,6 +55,7 @@ function cloneRecord<T>(record: Record<number, T[]>): Record<number, T[]> {
 export const useChatStore = create<ChatState>((set, get) => ({
   chats: [...mockChatList],
   messagesByGroupId: cloneRecord(mockMessagesByGroupId),
+  nextCursorByGroupId: {},
   membersByGroupId: cloneRecord(mockMembersByGroupId),
   selectedGroupId: null,
   nextGroupId: INITIAL_NEXT_GROUP_ID,
@@ -156,11 +161,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     const welcomeMessage: ChatMessage = {
       id: get().nextMessageId,
+      groupId,
       senderId: CURRENT_USER_ID,
       senderName: mockProfile.fullName,
+      senderAvatarUrl: mockProfile.avatarUrl,
       content: 'Group created',
       sentAt: now,
       isOwn: true,
+      isDeleted: false,
     }
 
     set((state) => ({
@@ -250,4 +258,36 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const memberIds = new Set(members.map((m) => m.userId))
     return mockFriends.filter((f) => !memberIds.has(f.id))
   },
+
+  setMessages: (groupId, messages, nextCursor) =>
+    set((state) => ({
+      messagesByGroupId: { ...state.messagesByGroupId, [groupId]: messages },
+      nextCursorByGroupId: { ...state.nextCursorByGroupId, [groupId]: nextCursor },
+    })),
+
+  prependMessages: (groupId, messages, nextCursor) =>
+    set((state) => {
+      const existing = state.messagesByGroupId[groupId] ?? []
+      const existingIds = new Set(existing.map((m) => m.id))
+      const unique = messages.filter((m) => !existingIds.has(m.id))
+      return {
+        messagesByGroupId: {
+          ...state.messagesByGroupId,
+          [groupId]: [...unique, ...existing],
+        },
+        nextCursorByGroupId: { ...state.nextCursorByGroupId, [groupId]: nextCursor },
+      }
+    }),
+
+  appendMessage: (message) =>
+    set((state) => {
+      const existing = state.messagesByGroupId[message.groupId] ?? []
+      if (existing.some((m) => m.id === message.id)) return state
+      return {
+        messagesByGroupId: {
+          ...state.messagesByGroupId,
+          [message.groupId]: [...existing, message],
+        },
+      }
+    }),
 }))

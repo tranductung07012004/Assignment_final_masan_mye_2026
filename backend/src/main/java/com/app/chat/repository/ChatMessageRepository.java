@@ -11,18 +11,18 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
-
-
+        
     @Query(value = """
             SELECT *
             FROM chat_messages
             WHERE group_id = :groupId
-            ORDER BY created_at ASC
-            LIMIT :limit OFFSET :offset
+              AND (:beforeId IS NULL OR id < :beforeId)
+            ORDER BY id DESC
+            LIMIT :size
             """, nativeQuery = true)
-    List<ChatMessage> findByGroupIdWithPagination(
+    List<ChatMessage> findByGroupIdBeforeIdDesc(
             @Param("groupId") Long groupId,
-            @Param("limit") int limit,
-            @Param("offset") int offset
+            @Param("beforeId") Long beforeId,
+            @Param("size") int size
     );
 }

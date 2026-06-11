@@ -1,8 +1,11 @@
+import SearchIcon from '@mui/icons-material/Search'
 import {
+  Alert,
   Avatar,
   Box,
   Button,
   Chip,
+  CircularProgress,
   InputAdornment,
   ListItem,
   ListItemAvatar,
@@ -10,40 +13,140 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import SearchIcon from '@mui/icons-material/Search'
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { sendFriendRequest } from '@/api/friends'
+import { searchUsers, USER_SEARCH_PAGE_SIZE } from '@/api/users'
 import PaginatedListCard from '@/components/common/PaginatedListCard'
-import { usePagination } from '@/hooks/usePagination'
-import { mockUsers } from '@/mock/users'
+import { useProfileStore } from '@/stores/profileStore'
+import type { SearchUser } from '@/types/friend'
 
-type RequestStatus = 'none' | 'pending'
+function canSendFriendRequest(
+  user: SearchUser,
+  currentUserId: number | null,
+): boolean {
+  if (!currentUserId) return false
+  if (!user.friendRequestStatus) return true
+  if (user.friendRequestStatus === 'PENDING') return false
+  if (user.friendRequestStatus === 'ACCEPTED') return false
+  if (user.friendRequestStatus === 'REJECTED') {
+    const isOriginalSender = user.friendRequestSenderId === currentUserId
+    if (!isOriginalSender) return true
+    if (!user.cooldownAt) return true
+    return new Date(user.cooldownAt) <= new Date()
+  }
+  return false
+}
 
-export default function SearchPage() {
-  const [query, setQuery] = useState('')
-  const [sentRequests, setSentRequests] = useState<Set<number>>(new Set())
+function getStatusChip(
+  user: SearchUser,
+  currentUserId: number | null,
+): { label: string; color?: 'default' | 'primary' | 'success' } | null {
+  if (!user.friendRequestStatus) return null
 
-  const filteredUsers = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return mockUsers
-    return mockUsers.filter(
-      (u) =>
-        u.fullName.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q),
-    )
-  }, [query])
-
-  const { paginatedItems, page, setPage, totalPages, pageSize } = usePagination(
-    filteredUsers,
-    undefined,
-    query,
-  )
-
-  function handleAddFriend(userId: number) {
-    setSentRequests((prev) => new Set(prev).add(userId))
+  if (user.friendRequestStatus === 'PENDING') {
+    if (user.friendRequestSenderId === currentUserId) {
+      return { label: 'Request sent', color: 'default' }
+    }
+    return { label: 'Incoming request', color: 'primary' }
   }
 
-  function getStatus(userId: number): RequestStatus {
-    return sentRequests.has(userId) ? 'pending' : 'none'
+  if (user.friendRequestStatus === 'ACCEPTED') {
+    return { label: 'Friends', color: 'success' }
+  }
+
+  if (user.friendRequestStatus === 'REJECTED') {
+    const isOriginalSender = user.friendRequestSenderId === currentUserId
+    if (isOriginalSender && user.cooldownAt && new Date(user.cooldownAt) > new Date()) {
+      return { label: 'Cooldown active', color: 'default' }
+    }
+  }
+
+  return null
+}
+
+export default function SearchPage() {
+  const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
+
+  const [searchInput, setSearchInput] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState('')
+  const [page, setPage] = useState(0)
+  const [users, setUsers] = useState<SearchUser[]>([])
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalElements, setTotalElements] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [sendingUserId, setSendingUserId] = useState<number | null>(null)
+
+  const fetchIdRef = useRef(0)
+
+  const fetchUsers = useCallback(async (keyword: string, pageNum: number) => {
+    const fetchId = ++fetchIdRef.current
+    setLoading(true)
+    setError(null)
+
+    try {
+      const result = await searchUsers({
+        keyword,
+        page: pageNum,
+        size: USER_SEARCH_PAGE_SIZE,
+      })
+
+      if (fetchId !== fetchIdRef.current) return
+
+      setUsers(result.users)
+      setTotalPages(result.totalPages)
+      setTotalElements(result.totalElements)
+      setPage(result.page)
+    } catch (err) {
+      if (fetchId !== fetchIdRef.current) return
+      setError(err instanceof Error ? err.message : 'Failed to load users')
+    } finally {
+      if (fetchId === fetchIdRef.current) {
+        setLoading(false)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchUsers(appliedKeyword, page)
+  }, [appliedKeyword, page, fetchUsers])
+
+  function applySearch() {
+    const keyword = searchInput.trim()
+    if (keyword === appliedKeyword && page === 0) {
+      fetchUsers(keyword, 0)
+      return
+    }
+    setAppliedKeyword(keyword)
+    if (page !== 0) {
+      setPage(0)
+    }
+  }
+
+  async function handleAddFriend(user: SearchUser) {
+    setActionError(null)
+    setSendingUserId(user.id)
+
+    try {
+      await sendFriendRequest({ receiverId: user.id })
+      setUsers((prev) =>
+        prev.map((item) =>
+          item.id === user.id
+            ? {
+                ...item,
+                friendRequestStatus: 'PENDING',
+                friendRequestSenderId: currentUserId,
+                cooldownAt: null,
+              }
+            : item,
+        ),
+      )
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to send friend request')
+    } finally {
+      setSendingUserId(null)
+    }
   }
 
   return (
@@ -57,9 +160,14 @@ export default function SearchPage() {
 
       <TextField
         fullWidth
-        placeholder="Search by name or email..."
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search by name... (Enter)"
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            applySearch()
+          }
+        }}
         slotProps={{
           input: {
             startAdornment: (
@@ -67,47 +175,86 @@ export default function SearchPage() {
                 <SearchIcon color="action" />
               </InputAdornment>
             ),
+            endAdornment: (
+              <InputAdornment position="end">
+                <Button size="small" onClick={applySearch}>
+                  Search
+                </Button>
+              </InputAdornment>
+            ),
           },
         }}
         sx={{ mb: 3 }}
       />
 
-      <PaginatedListCard
-        itemCount={filteredUsers.length}
-        paginatedItems={paginatedItems}
-        page={page}
-        totalPages={totalPages}
-        onPageChange={setPage}
-        pageSize={pageSize}
-        emptyMessage="No users found."
-        getItemKey={(user) => user.id}
-        renderItem={(user, index, pageSize) => {
-          const status = getStatus(user.id)
-          return (
-            <ListItem
-              divider={index < pageSize - 1}
-              secondaryAction={
-                status === 'pending' ? (
-                  <Chip label="Request sent" size="small" color="default" />
-                ) : (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    onClick={() => handleAddFriend(user.id)}
-                  >
-                    Add Friend
-                  </Button>
-                )
-              }
-            >
-              <ListItemAvatar>
-                <Avatar src={user.avatarUrl ?? undefined} alt={user.fullName} />
-              </ListItemAvatar>
-              <ListItemText primary={user.fullName} secondary={user.email} />
-            </ListItem>
-          )
-        }}
-      />
+      {actionError ? (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setActionError(null)}>
+          {actionError}
+        </Alert>
+      ) : null}
+
+      {error ? (
+        <Alert
+          severity="error"
+          sx={{ mb: 2 }}
+          action={
+            <Button color="inherit" size="small" onClick={() => fetchUsers(appliedKeyword, page)}>
+              Retry
+            </Button>
+          }
+        >
+          {error}
+        </Alert>
+      ) : null}
+
+      {loading && users.length === 0 ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+          <CircularProgress size={32} />
+        </Box>
+      ) : (
+        <>
+          <PaginatedListCard
+            itemCount={totalElements}
+            paginatedItems={users}
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+            pageSize={USER_SEARCH_PAGE_SIZE}
+            emptyMessage="No users found."
+            getItemKey={(user) => user.id}
+            renderItem={(user, index, pageSize) => {
+              const statusChip = getStatusChip(user, currentUserId)
+              const showAddButton = canSendFriendRequest(user, currentUserId)
+              const isSending = sendingUserId === user.id
+
+              return (
+                <ListItem
+                  divider={index < pageSize - 1}
+                  secondaryAction={
+                    statusChip ? (
+                      <Chip label={statusChip.label} size="small" color={statusChip.color} />
+                    ) : showAddButton ? (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        disabled={isSending}
+                        onClick={() => handleAddFriend(user)}
+                      >
+                        {isSending ? 'Sending...' : 'Add Friend'}
+                      </Button>
+                    ) : null
+                  }
+                >
+                  <ListItemAvatar>
+                    <Avatar src={user.avatarUrl ?? undefined} alt={user.fullName} />
+                  </ListItemAvatar>
+                  <ListItemText primary={user.fullName} />
+                </ListItem>
+              )
+            }}
+          />
+        </>
+      )}
     </Box>
   )
 }

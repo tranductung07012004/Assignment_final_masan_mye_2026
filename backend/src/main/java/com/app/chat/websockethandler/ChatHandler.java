@@ -36,7 +36,6 @@ public class ChatHandler extends TextWebSocketHandler {
     private final ConcurrentHashMap<String, WebSocketSession> localSessions;
     private final ConcurrentHashMap<String, ChannelTopic> userChannels;
 
-
     private final StringRedisTemplate redisTemplate;
     private final RedisMessageListenerContainer listenerContainer;
     private final RedisMessageListener redisMessageListener;
@@ -131,10 +130,8 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(savedMessage);
-            this.redisTemplate.convertAndSend(
-                    userChannel(String.valueOf(request.getReceiverId())),
-                    outboundPayload
-            );
+            this.redisTemplate.convertAndSend(userChannel(String.valueOf(request.getReceiverId())), outboundPayload);
+            this.redisTemplate.convertAndSend(userChannel(senderId), outboundPayload);
         } catch (ApplicationException e) {
             logger.warn("Failed to send direct message from senderId {}: {}", senderId, e.getMessage());
         } catch (Exception e) {

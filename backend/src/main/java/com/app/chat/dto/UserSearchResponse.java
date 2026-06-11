@@ -7,10 +7,11 @@ import java.time.OffsetDateTime;
 
 @Data
 @Builder
-public class ProfileResponse {
-    private Long userId;
-    private String email;
+public class UserSearchResponse {
+    private Long id;
     private String fullName;
     private String avatarUrl;
-    private OffsetDateTime createdAt;
+    private String friendRequestStatus;
+    private Long friendRequestSenderId;
+    private OffsetDateTime cooldownAt;
 }

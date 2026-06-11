@@ -19,11 +19,13 @@ import {
   Typography,
 } from '@mui/material'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CHAT_LIST_PAGE_SIZE, listChats } from '@/api/chat'
+import { CHAT_LIST_PAGE_SIZE, listChats, loadMessages } from '@/api/chat'
 import CreateGroupDialog from '@/components/messages/CreateGroupDialog'
 import GroupSettingsDrawer from '@/components/messages/GroupSettingsDrawer'
 import ListPagination from '@/components/common/ListPagination'
 import { useChatStore } from '@/stores/chatStore'
+import { useProfileStore } from '@/stores/profileStore'
+import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
 
 function formatTime(iso: string): string {
@@ -36,8 +38,14 @@ function formatTime(iso: string): string {
 
 export default function MessagesPage() {
   const messagesByGroupId = useChatStore((state) => state.messagesByGroupId)
+  const nextCursorByGroupId = useChatStore((state) => state.nextCursorByGroupId)
   const selectedGroupId = useChatStore((state) => state.selectedGroupId)
   const selectChat = useChatStore((state) => state.selectChat)
+  const setMessages = useChatStore((state) => state.setMessages)
+  const prependMessages = useChatStore((state) => state.prependMessages)
+
+  const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
+  const { sendDirect, sendGroup } = useWebSocket()
 
   const [searchInput, setSearchInput] = useState('')
   const [appliedKeyword, setAppliedKeyword] = useState('')
@@ -52,8 +60,10 @@ export default function MessagesPage() {
   const [draft, setDraft] = useState('')
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const fetchIdRef = useRef(0)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const fetchChats = useCallback(async (keyword: string, pageNum: number) => {
     const fetchId = ++fetchIdRef.current
@@ -87,6 +97,30 @@ export default function MessagesPage() {
     fetchChats(appliedKeyword, page)
   }, [appliedKeyword, page, fetchChats])
 
+  // Load message history when a chat is selected
+  useEffect(() => {
+    if (!selectedGroupId || !currentUserId) return
+
+    async function fetchHistory() {
+      setHistoryLoading(true)
+      try {
+        const result = await loadMessages(selectedGroupId!, currentUserId!, null)
+        setMessages(selectedGroupId!, result.messages, result.nextCursor)
+      } catch {
+        // silently fail — existing messages stay visible
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+
+    fetchHistory()
+  }, [selectedGroupId, currentUserId, setMessages])
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messagesByGroupId, selectedGroupId])
+
   function applySearch() {
     const keyword = searchInput.trim()
     if (keyword === appliedKeyword && page === 0) {
@@ -104,7 +138,48 @@ export default function MessagesPage() {
     selectChat(chat.groupId)
   }
 
+  function handleGroupCreated(chat: ChatListItem) {
+    setAppliedKeyword('')
+    setSearchInput('')
+    setPage(0)
+    setSelectedChat(chat)
+    selectChat(chat.groupId)
+    fetchChats('', 0)
+  }
+
+  async function handleLoadOlder() {
+    if (!selectedGroupId || !currentUserId) return
+    const cursor = nextCursorByGroupId[selectedGroupId]
+    if (cursor == null) return
+
+    setHistoryLoading(true)
+    try {
+      const result = await loadMessages(selectedGroupId, currentUserId, cursor)
+      prependMessages(selectedGroupId, result.messages, result.nextCursor)
+    } catch {
+      // silently fail
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  function handleSend() {
+    const content = draft.trim()
+    if (!content || !selectedChat) return
+
+    if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
+      sendDirect({ receiverId: selectedChat.peerId, content })
+    } else if (selectedChat.type === 'GROUP') {
+      sendGroup({ groupId: selectedChat.groupId, content })
+    }
+
+    setDraft('')
+  }
+
   const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
+  const hasMoreHistory = selectedGroupId
+    ? (nextCursorByGroupId[selectedGroupId] ?? null) !== null
+    : false
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
@@ -269,7 +344,24 @@ export default function MessagesPage() {
                 gap: 1.5,
               }}
             >
-              {messages.length === 0 ? (
+              {hasMoreHistory && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={historyLoading}
+                    onClick={handleLoadOlder}
+                  >
+                    {historyLoading ? 'Loading...' : 'Load older messages'}
+                  </Button>
+                </Box>
+              )}
+
+              {historyLoading && messages.length === 0 ? (
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <CircularProgress size={28} />
+                </Box>
+              ) : messages.length === 0 ? (
                 <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <Typography color="text.secondary">No messages yet.</Typography>
                 </Box>
@@ -287,10 +379,15 @@ export default function MessagesPage() {
                       sx={{
                         px: 2,
                         py: 1,
-                        bgcolor: msg.isOwn ? 'primary.main' : 'background.paper',
-                        color: msg.isOwn ? 'primary.contrastText' : 'text.primary',
-                        border: msg.isOwn ? 'none' : 1,
+                        bgcolor: msg.isDeleted
+                          ? 'action.hover'
+                          : msg.isOwn
+                          ? 'primary.main'
+                          : 'background.paper',
+                        color: msg.isOwn && !msg.isDeleted ? 'primary.contrastText' : 'text.primary',
+                        border: msg.isOwn && !msg.isDeleted ? 'none' : 1,
                         borderColor: 'divider',
+                        fontStyle: msg.isDeleted ? 'italic' : 'normal',
                       }}
                     >
                       {!msg.isOwn && selectedChat.type === 'GROUP' && (
@@ -301,7 +398,9 @@ export default function MessagesPage() {
                           {msg.senderName}
                         </Typography>
                       )}
-                      <Typography variant="body2">{msg.content}</Typography>
+                      <Typography variant="body2" color={msg.isDeleted ? 'text.disabled' : 'inherit'}>
+                        {msg.isDeleted ? 'This message was deleted.' : msg.content}
+                      </Typography>
                     </Paper>
                     <Typography
                       variant="caption"
@@ -317,6 +416,7 @@ export default function MessagesPage() {
                   </Box>
                 ))
               )}
+              <div ref={messagesEndRef} />
             </Box>
 
             <Divider />
@@ -327,6 +427,12 @@ export default function MessagesPage() {
                 placeholder="Type a message..."
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
                 slotProps={{
                   input: {
                     endAdornment: (
@@ -335,7 +441,7 @@ export default function MessagesPage() {
                           edge="end"
                           color="primary"
                           disabled={!draft.trim()}
-                          onClick={() => setDraft('')}
+                          onClick={handleSend}
                         >
                           <SendIcon />
                         </IconButton>
@@ -365,6 +471,7 @@ export default function MessagesPage() {
       <CreateGroupDialog
         open={createDialogOpen}
         onClose={() => setCreateDialogOpen(false)}
+        onCreated={handleGroupCreated}
       />
 
       {settingsOpen && selectedChat?.type === 'GROUP' && selectedGroupId !== null && (

@@ -5,4 +5,5 @@ public interface ChatListItemProjection {
     String getType();
     String getTitle();
     String getAvatarUrl();
+    Long getPeerId();
 }
