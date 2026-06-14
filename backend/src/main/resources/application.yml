@@ -1,0 +1,50 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: chat
+
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 6000ms
+
+    lettuce:
+      pool:
+        max-active: 16
+        max-idle: 8
+        min-idle: 2
+
+  cache:
+    type: redis
+    redis:
+      use-key-prefix: false
+      cache-null-values: false
+
+
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration_access: 900000  # milliseconds, tinh ra la = 15p, dung de test login
+  expiration_refresh: 604800000 # milliseconds, tinh ra la = 7 * 24 * 60 * 60 * 1000
+
+cookie:
+  expiration: 604800 # in seconds
+
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
