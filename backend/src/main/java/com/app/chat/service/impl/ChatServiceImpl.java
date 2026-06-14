@@ -38,11 +38,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 public class ChatServiceImpl implements ChatServiceInterface {
     private static final int GROUP_MEMBER_LIMIT = 10;
     private static final int GROUP_MEMBER_MINIMUM = 3;
+
+    private static final Set<String> ALLOWED_STICKER_IDS = Set.of(
+            "groom", "idea", "inspiration", "pig", "rabbit", "turtle"
+    );
 
     private static final Logger logger = LoggerFactory.getLogger(ChatServiceImpl.class);
 
@@ -464,6 +469,24 @@ public class ChatServiceImpl implements ChatServiceInterface {
             return ResolvedMessageDto.builder()
                     .messageType("VIDEO")
                     .content(videoUrl)
+                    .metadata(null)
+                    .build();
+        }
+
+        if ("STICKERS".equals(normalizedType)) {
+            if (content == null || content.isBlank()) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
+            }
+            String stickerId = content.trim();
+            if (stickerId.length() > 64) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
+            }
+            if (!ALLOWED_STICKER_IDS.contains(stickerId)) {
+                throw new ApplicationException(ErrorCode.INVALID_STICKER_ID);
+            }
+            return ResolvedMessageDto.builder()
+                    .messageType("STICKERS")
+                    .content(stickerId)
                     .metadata(null)
                     .build();
         }

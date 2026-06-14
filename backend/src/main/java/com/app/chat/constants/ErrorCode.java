@@ -11,6 +11,7 @@ public enum ErrorCode {
     MESSAGE_CONTENT_REQUIRED("Message content is required", 400),
     MESSAGE_CONTENT_TOO_LONG("Message content must not exceed 500 characters", 400),
     INVALID_MESSAGE_TYPE("Message type is not supported", 400),
+    INVALID_STICKER_ID("Sticker id is not valid", 400),
     INVALID_IMAGE_URL("Image URL is invalid or not from this application", 400),
     INVALID_VIDEO_URL("Video URL is invalid or not from this application", 400),
     INVALID_RESOURCE_TYPE("Resource type must be IMAGE or VIDEO", 400),

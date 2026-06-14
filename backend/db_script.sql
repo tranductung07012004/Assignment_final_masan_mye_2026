@@ -96,7 +96,7 @@ CREATE TABLE chat_messages (
     edited_at       TIMESTAMPTZ(0),
     deleted_at      TIMESTAMPTZ(0),
 
-    CONSTRAINT chk_chat_messages_type CHECK (message_type IN ('TEXT', 'IMAGE', 'VIDEO'))
+    CONSTRAINT chk_chat_messages_type CHECK (message_type IN ('TEXT', 'IMAGE', 'VIDEO', 'STICKERS'))
 );
 
 CREATE INDEX idx_chat_messages_group_id_created_at ON chat_messages(group_id, created_at);

@@ -22,7 +22,7 @@ type IncomingMessageDto = {
 
 type OutgoingMessagePayload = {
   content: string
-  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO'
+  messageType?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'STICKERS'
 }
 
 type SendDirectPayload = OutgoingMessagePayload & {

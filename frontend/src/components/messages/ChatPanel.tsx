@@ -18,6 +18,7 @@ type ChatPanelProps = {
   onSend: () => void
   onImageSelected: (event: ChangeEvent<HTMLInputElement>) => void
   onVideoSelected: (event: ChangeEvent<HTMLInputElement>) => void
+  onStickerSelect: (stickerId: string) => void
   imageUploading: boolean
   videoUploading: boolean
   videoUploadProgress: number
@@ -36,6 +37,7 @@ export default function ChatPanel({
   onSend,
   onImageSelected,
   onVideoSelected,
+  onStickerSelect,
   imageUploading,
   videoUploading,
   videoUploadProgress,
@@ -60,6 +62,7 @@ export default function ChatPanel({
         onSend={onSend}
         onImageSelected={onImageSelected}
         onVideoSelected={onVideoSelected}
+        onStickerSelect={onStickerSelect}
         imageUploading={imageUploading}
         videoUploading={videoUploading}
         videoUploadProgress={videoUploadProgress}

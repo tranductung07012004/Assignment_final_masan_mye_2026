@@ -18,6 +18,8 @@ export type ChatListItem = {
   peerId?: number | null
 }
 
+export type ChatMessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'STICKERS'
+
 export type ChatMessage = {
   id: number
   groupId: number
@@ -25,7 +27,7 @@ export type ChatMessage = {
   senderName: string
   senderAvatarUrl: string | null
   content: string | null
-  messageType: string
+  messageType: ChatMessageType | string
   sentAt: string
   isOwn: boolean
   isDeleted: boolean
