@@ -2,6 +2,7 @@ package com.app.chat.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+
 import java.util.UUID;
 
 @Component
@@ -9,11 +10,9 @@ public class InstanceIdentityConfig {
 
     private final String serverId;
 
-    // Lấy biến môi trường HOSTNAME, dùng để chạy trong docker compose.
-    // Nếu chạy local không có thì dùng UUID làm fallback, túc là ví dụ chạy trong 2 terminal
-    public InstanceIdentityConfig(@Value("${HOSTNAME:#{null}}") String hostname) {
+    public InstanceIdentityConfig(@Value("${HOSTNAME:}") String hostname) {
         if (hostname != null && !hostname.trim().isEmpty()) {
-            this.serverId = hostname;
+            this.serverId = hostname.trim();
         } else {
             this.serverId = "server-" + UUID.randomUUID().toString().substring(0, 8);
         }

@@ -1,6 +1,8 @@
 package com.app.chat.listener;
 
 import com.app.chat.websockethandler.ChatHandler;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Lazy;
@@ -14,15 +16,17 @@ import java.nio.charset.StandardCharsets;
 public class RedisMessageListener implements MessageListener {
 
     private static final Logger logger = LoggerFactory.getLogger(RedisMessageListener.class);
-    private static final String USER_CHANNEL_PREFIX = "user:";
+    private static final String SERVER_CHANNEL_PREFIX = "server:";
 
     private final ChatHandler chatHandler;
+    private final ObjectMapper objectMapper;
 
     // SU dung @Lazy o day la vi co circular dependency injection giua chatHandler va RedisMessageListener
     // Neu khong dung thi app khong build duoc, loi compile time
     // No throw ra org.springframework.beans.factory.BeanCurrentlyInCreationException
-    public RedisMessageListener(@Lazy ChatHandler chatHandler) {
+    public RedisMessageListener(@Lazy ChatHandler chatHandler, ObjectMapper objectMapper) {
         this.chatHandler = chatHandler;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -45,13 +49,19 @@ public class RedisMessageListener implements MessageListener {
          (co the la windows server khong co UTF_8 chang han)
          **/
         String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
-        if (!channel.startsWith(USER_CHANNEL_PREFIX)) {
+        if (!channel.startsWith(SERVER_CHANNEL_PREFIX)) {
             logger.warn("Ignoring message on unexpected channel: {}", channel);
             return;
         }
 
-        String userId = channel.substring(USER_CHANNEL_PREFIX.length());
-        String payload = new String(message.getBody(), StandardCharsets.UTF_8);
-        this.chatHandler.pushMessageToLocalWebSocketSession(userId, payload);
+        try {
+            String wrappedJson = new String(message.getBody(), StandardCharsets.UTF_8);
+            JsonNode node = objectMapper.readTree(wrappedJson);
+            String targetUserId = node.get("targetUserId").asText();
+            String actualPayload = node.get("message").asText();
+            chatHandler.pushMessageToLocalWebSocketSession(targetUserId, actualPayload);
+        } catch (Exception e) {
+            logger.error("Failed to process Redis message on channel: {}", channel, e);
+        }
     }
 }
