@@ -186,8 +186,6 @@ public class ChatHandler extends TextWebSocketHandler {
             for (Long memberId : result.getMemberIds()) {
                 publishToUser(String.valueOf(memberId), outboundPayload);
             }
-        } catch (ApplicationException e) {
-            logger.warn("Failed to send group message from senderId {}: {}", senderId, e.getMessage());
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
         }

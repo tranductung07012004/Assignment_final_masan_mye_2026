@@ -106,7 +106,7 @@ export function useWebSocket() {
     ws.onerror = () => {
       ws.close()
     }
-  }, [accessToken])
+  }, [accessToken, currentUserId])
 
   useEffect(() => {
     connect()
