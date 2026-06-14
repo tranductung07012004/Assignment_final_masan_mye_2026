@@ -32,19 +32,47 @@ type SendGroupPayload = {
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const intentionalCloseRef = useRef(false)
   const accessToken = useAuthStore((state) => state.accessToken)
   const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
   const appendMessage = useChatStore((state) => state.appendMessage)
+  const currentUserIdRef = useRef(currentUserId)
+  const appendMessageRef = useRef(appendMessage)
+
+  currentUserIdRef.current = currentUserId
+  appendMessageRef.current = appendMessage
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }
 
   const connect = useCallback(() => {
-    if (!accessToken || !currentUserId) return
-    if (wsRef.current?.readyState === WebSocket.OPEN) return
+    if (!accessToken || !currentUserIdRef.current) return
+
+    const existing = wsRef.current
+    if (
+      existing &&
+      (existing.readyState === WebSocket.CONNECTING ||
+        existing.readyState === WebSocket.OPEN ||
+        existing.readyState === WebSocket.CLOSING)
+    ) {
+      return
+    }
+
+    intentionalCloseRef.current = false
+    clearReconnectTimer()
 
     const deviceId = getDeviceId()
-    const ws = new WebSocket(
-      `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}`,
-    )
+    const wsUrl = `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}`
+    const ws = new WebSocket(wsUrl)
     wsRef.current = ws
+
+    ws.onopen = () => {
+      clearReconnectTimer()
+    }
 
     ws.onmessage = (event: MessageEvent<string>) => {
       try {
@@ -57,29 +85,34 @@ export function useWebSocket() {
           senderAvatarUrl: dto.senderAvatarUrl ?? null,
           content: dto.deletedAt ? null : dto.content,
           sentAt: dto.createdAt,
-          isOwn: dto.senderMemberId === currentUserId,
+          isOwn: dto.senderMemberId === currentUserIdRef.current,
           isDeleted: dto.deletedAt !== null,
         }
-        appendMessage(message)
+        appendMessageRef.current(message)
       } catch {
         // malformed payload — ignore
       }
     }
 
     ws.onclose = () => {
-      wsRef.current = null
+      if (wsRef.current === ws) {
+        wsRef.current = null
+      }
+      if (intentionalCloseRef.current) return
+      clearReconnectTimer()
       reconnectTimerRef.current = setTimeout(connect, 3000)
     }
 
     ws.onerror = () => {
       ws.close()
     }
-  }, [accessToken, currentUserId, appendMessage])
+  }, [accessToken])
 
   useEffect(() => {
     connect()
     return () => {
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current)
+      intentionalCloseRef.current = true
+      clearReconnectTimer()
       wsRef.current?.close()
       wsRef.current = null
     }
