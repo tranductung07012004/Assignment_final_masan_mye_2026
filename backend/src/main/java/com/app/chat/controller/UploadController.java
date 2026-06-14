@@ -7,6 +7,7 @@ import com.app.chat.utils.SecurityUtil;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -19,9 +20,11 @@ public class UploadController {
     }
 
     @PostMapping("/signature")
-    public ResponseEntity<ApiResponse<UploadSignatureResponse>> createSignature() {
+    public ResponseEntity<ApiResponse<UploadSignatureResponse>> createSignature(
+            @RequestParam(defaultValue = "IMAGE") String resourceType
+    ) {
         Long userId = SecurityUtil.getCurrentUserId();
-        UploadSignatureResponse res = this.uploadService.createChatUploadSignature(userId);
+        UploadSignatureResponse res = this.uploadService.createChatUploadSignature(userId, resourceType);
 
         return ResponseEntity.ok(
                 new ApiResponse<>("Upload signature created successfully", res)

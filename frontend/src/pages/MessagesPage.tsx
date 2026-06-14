@@ -1,42 +1,16 @@
-import GroupAddIcon from '@mui/icons-material/GroupAdd'
-import ImageIcon from '@mui/icons-material/Image'
-import SearchIcon from '@mui/icons-material/Search'
-import SendIcon from '@mui/icons-material/Send'
-import SettingsIcon from '@mui/icons-material/Settings'
-import {
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  Divider,
-  IconButton,
-  InputAdornment,
-  List,
-  ListItemButton,
-  ListItemText,
-  Paper,
-  TextField,
-  Typography,
-} from '@mui/material'
+import { Box } from '@mui/material'
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { CHAT_LIST_PAGE_SIZE, listChats, loadMessages } from '@/api/chat'
+import ChatEmptyState from '@/components/messages/ChatEmptyState'
+import ChatPanel from '@/components/messages/ChatPanel'
+import ConversationSidebar from '@/components/messages/ConversationSidebar'
 import CreateGroupDialog from '@/components/messages/CreateGroupDialog'
 import GroupSettingsDrawer from '@/components/messages/GroupSettingsDrawer'
-import ListPagination from '@/components/common/ListPagination'
 import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
-import { uploadChatImage } from '@/utils/cloudinaryUpload'
-
-function formatTime(iso: string): string {
-  if (!iso) return ''
-  return new Date(iso).toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
+import { uploadChatImage, uploadChatVideo } from '@/utils/cloudinaryUpload'
 
 export default function MessagesPage() {
   const messagesByGroupId = useChatStore((state) => state.messagesByGroupId)
@@ -64,10 +38,11 @@ export default function MessagesPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
   const [imageUploading, setImageUploading] = useState(false)
+  const [videoUploading, setVideoUploading] = useState(false)
+  const [videoUploadProgress, setVideoUploadProgress] = useState(0)
 
   const fetchIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const fetchChats = useCallback(async (keyword: string, pageNum: number) => {
     const fetchId = ++fetchIdRef.current
@@ -101,7 +76,6 @@ export default function MessagesPage() {
     fetchChats(appliedKeyword, page)
   }, [appliedKeyword, page, fetchChats])
 
-  // Load message history when a chat is selected
   useEffect(() => {
     if (!selectedGroupId || !currentUserId) return
 
@@ -120,7 +94,6 @@ export default function MessagesPage() {
     fetchHistory()
   }, [selectedGroupId, currentUserId, setMessages])
 
-  // Scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messagesByGroupId, selectedGroupId])
@@ -210,6 +183,38 @@ export default function MessagesPage() {
     }
   }
 
+  async function handleVideoSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !selectedChat) return
+
+    setVideoUploading(true)
+    setVideoUploadProgress(0)
+    setError(null)
+
+    try {
+      const uploaded = await uploadChatVideo(file, setVideoUploadProgress)
+      if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
+        sendDirect({
+          receiverId: selectedChat.peerId,
+          content: uploaded.secureUrl,
+          messageType: 'VIDEO',
+        })
+      } else if (selectedChat.type === 'GROUP') {
+        sendGroup({
+          groupId: selectedChat.groupId,
+          content: uploaded.secureUrl,
+          messageType: 'VIDEO',
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload video')
+    } finally {
+      setVideoUploading(false)
+      setVideoUploadProgress(0)
+    }
+  }
+
   const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
   const hasMoreHistory = selectedGroupId
     ? (nextCursorByGroupId[selectedGroupId] ?? null) !== null
@@ -217,318 +222,44 @@ export default function MessagesPage() {
 
   return (
     <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
-      <Paper
-        elevation={0}
-        square
-        sx={{
-          width: 340,
-          flexShrink: 0,
-          borderRight: 1,
-          borderColor: 'divider',
-          display: 'flex',
-          flexDirection: 'column',
-        }}
-      >
-        <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-          <Typography variant="h6" sx={{ fontWeight: 600, mb: 1.5 }}>
-            Conversations
-          </Typography>
-
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Search by name... (Enter)"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
-                applySearch()
-              }
-            }}
-            slotProps={{
-              input: {
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <IconButton
-                      size="small"
-                      edge="start"
-                      aria-label="Search conversations"
-                      onClick={applySearch}
-                    >
-                      <SearchIcon fontSize="small" color="action" />
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              },
-            }}
-            sx={{ mb: 1.5 }}
-          />
-
-          <Button
-            fullWidth
-            variant="outlined"
-            size="small"
-            startIcon={<GroupAddIcon />}
-            onClick={() => setCreateDialogOpen(true)}
-          >
-            Create Group
-          </Button>
-        </Box>
-
-        <List disablePadding sx={{ flex: 1, overflow: 'auto' }}>
-          {loading && sidebarChats.length === 0 ? (
-            <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
-              <CircularProgress size={28} />
-            </Box>
-          ) : error ? (
-            <Box sx={{ py: 4, px: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="error" sx={{ mb: 1 }}>
-                {error}
-              </Typography>
-              <Button size="small" onClick={() => fetchChats(appliedKeyword, page)}>
-                Retry
-              </Button>
-            </Box>
-          ) : sidebarChats.length === 0 ? (
-            <Box sx={{ py: 4, px: 2, textAlign: 'center' }}>
-              <Typography variant="body2" color="text.secondary">
-                No conversations found.
-              </Typography>
-            </Box>
-          ) : (
-            sidebarChats.map((chat) => (
-              <ListItemButton
-                key={chat.groupId}
-                selected={chat.groupId === selectedGroupId}
-                onClick={() => handleChatClick(chat)}
-                sx={{ py: 1.5, px: 2 }}
-              >
-                <Avatar
-                  src={chat.avatarUrl ?? undefined}
-                  alt={chat.title}
-                  sx={{ mr: 2 }}
-                />
-                <ListItemText
-                  primary={
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                      <Typography variant="body2" noWrap>
-                        {chat.title}
-                      </Typography>
-                      {chat.type === 'GROUP' && (
-                        <Chip label="Group" size="small" sx={{ height: 18, fontSize: 11 }} />
-                      )}
-                    </Box>
-                  }
-                />
-              </ListItemButton>
-            ))
-          )}
-        </List>
-
-        <Box sx={{ borderTop: 1, borderColor: 'divider' }}>
-          <ListPagination
-            page={page}
-            totalPages={totalPages}
-            onPageChange={setPage}
-            itemCount={totalElements}
-          />
-        </Box>
-      </Paper>
+      <ConversationSidebar
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        onSearch={applySearch}
+        onCreateGroup={() => setCreateDialogOpen(true)}
+        chats={sidebarChats}
+        loading={loading}
+        error={error}
+        selectedGroupId={selectedGroupId}
+        onChatSelect={handleChatClick}
+        onRetry={() => fetchChats(appliedKeyword, page)}
+        page={page}
+        totalPages={totalPages}
+        totalElements={totalElements}
+        onPageChange={setPage}
+      />
 
       <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         {selectedChat ? (
-          <>
-            <Box
-              sx={{
-                px: 3,
-                py: 2,
-                borderBottom: 1,
-                borderColor: 'divider',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 2,
-                bgcolor: 'background.paper',
-              }}
-            >
-              <Avatar
-                src={selectedChat.avatarUrl ?? undefined}
-                alt={selectedChat.title}
-              />
-              <Typography variant="subtitle1" sx={{ fontWeight: 600, flex: 1 }}>
-                {selectedChat.title}
-              </Typography>
-              {selectedChat.type === 'GROUP' && (
-                <IconButton
-                  aria-label="Group settings"
-                  onClick={() => setSettingsOpen(true)}
-                >
-                  <SettingsIcon />
-                </IconButton>
-              )}
-            </Box>
-
-            <Box
-              sx={{
-                flex: 1,
-                overflow: 'auto',
-                p: 3,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1.5,
-              }}
-            >
-              {hasMoreHistory && (
-                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
-                  <Button
-                    size="small"
-                    variant="text"
-                    disabled={historyLoading}
-                    onClick={handleLoadOlder}
-                  >
-                    {historyLoading ? 'Loading...' : 'Load older messages'}
-                  </Button>
-                </Box>
-              )}
-
-              {historyLoading && messages.length === 0 ? (
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <CircularProgress size={28} />
-                </Box>
-              ) : messages.length === 0 ? (
-                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Typography color="text.secondary">No messages yet.</Typography>
-                </Box>
-              ) : (
-                messages.map((msg) => (
-                  <Box
-                    key={msg.id}
-                    sx={{
-                      alignSelf: msg.isOwn ? 'flex-end' : 'flex-start',
-                      maxWidth: '65%',
-                    }}
-                  >
-                    <Paper
-                      elevation={0}
-                      sx={{
-                        px: 2,
-                        py: 1,
-                        bgcolor: msg.isDeleted
-                          ? 'action.hover'
-                          : msg.isOwn
-                          ? 'primary.main'
-                          : 'background.paper',
-                        color: msg.isOwn && !msg.isDeleted ? 'primary.contrastText' : 'text.primary',
-                        border: msg.isOwn && !msg.isDeleted ? 'none' : 1,
-                        borderColor: 'divider',
-                        fontStyle: msg.isDeleted ? 'italic' : 'normal',
-                      }}
-                    >
-                      {!msg.isOwn && selectedChat.type === 'GROUP' && (
-                        <Typography
-                          variant="caption"
-                          sx={{ fontWeight: 600, display: 'block', mb: 0.25 }}
-                        >
-                          {msg.senderName}
-                        </Typography>
-                      )}
-                      {msg.isDeleted ? (
-                        <Typography variant="body2" color="text.disabled">
-                          This message was deleted.
-                        </Typography>
-                      ) : msg.messageType === 'IMAGE' && msg.content ? (
-                        <Box
-                          component="img"
-                          src={msg.content}
-                          alt="Shared image"
-                          sx={{
-                            display: 'block',
-                            maxWidth: '100%',
-                            maxHeight: 280,
-                            borderRadius: 1,
-                          }}
-                        />
-                      ) : (
-                        <Typography variant="body2">{msg.content}</Typography>
-                      )}
-                    </Paper>
-                    <Typography
-                      variant="caption"
-                      color="text.disabled"
-                      sx={{
-                        display: 'block',
-                        mt: 0.25,
-                        textAlign: msg.isOwn ? 'right' : 'left',
-                      }}
-                    >
-                      {formatTime(msg.sentAt)}
-                    </Typography>
-                  </Box>
-                ))
-              )}
-              <div ref={messagesEndRef} />
-            </Box>
-
-            <Divider />
-            <Box sx={{ p: 2, display: 'flex', gap: 1, bgcolor: 'background.paper' }}>
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                hidden
-                onChange={handleImageSelected}
-              />
-              <IconButton
-                aria-label="Attach image"
-                disabled={imageUploading}
-                onClick={() => imageInputRef.current?.click()}
-              >
-                {imageUploading ? <CircularProgress size={20} /> : <ImageIcon />}
-              </IconButton>
-              <TextField
-                fullWidth
-                size="small"
-                placeholder="Type a message..."
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSend()
-                  }
-                }}
-                slotProps={{
-                  input: {
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          edge="end"
-                          color="primary"
-                          disabled={!draft.trim()}
-                          onClick={handleSend}
-                        >
-                          <SendIcon />
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  },
-                }}
-              />
-            </Box>
-          </>
+          <ChatPanel
+            chat={selectedChat}
+            messages={messages}
+            historyLoading={historyLoading}
+            hasMoreHistory={hasMoreHistory}
+            onLoadOlder={handleLoadOlder}
+            onSettingsClick={() => setSettingsOpen(true)}
+            messagesEndRef={messagesEndRef}
+            draft={draft}
+            onDraftChange={setDraft}
+            onSend={handleSend}
+            onImageSelected={handleImageSelected}
+            onVideoSelected={handleVideoSelected}
+            imageUploading={imageUploading}
+            videoUploading={videoUploading}
+            videoUploadProgress={videoUploadProgress}
+          />
         ) : (
-          <Box
-            sx={{
-              flex: 1,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Typography color="text.secondary">
-              Select a conversation to start chatting.
-            </Typography>
-          </Box>
+          <ChatEmptyState />
         )}
       </Box>
 

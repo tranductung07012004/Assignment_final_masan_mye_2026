@@ -10,9 +10,12 @@ export type UploadSignatureDto = {
   folder: string
 }
 
-export async function getChatUploadSignature(): Promise<UploadSignatureDto> {
+export async function getChatUploadSignature(
+  resourceType: 'IMAGE' | 'VIDEO' = 'IMAGE',
+): Promise<UploadSignatureDto> {
+  const query = resourceType === 'VIDEO' ? '?resourceType=VIDEO' : ''
   const response = await apiClient<ApiResponse<UploadSignatureDto>>(
-    '/api/uploads/signature',
+    `/api/uploads/signature${query}`,
     { method: 'POST' },
   )
   return response.data

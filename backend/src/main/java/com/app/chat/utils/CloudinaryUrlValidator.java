@@ -15,6 +15,13 @@ public final class CloudinaryUrlValidator {
         if (!isValidCloudinaryUrl(url, cloudName) || senderId == null) {
             return false;
         }
-        return url.contains("/chat/" + senderId + "/");
+        return url.contains("/image/upload/") && url.contains("/chat/" + senderId + "/");
+    }
+
+    public static boolean isValidChatVideoUrl(String url, String cloudName, Long senderId) {
+        if (!isValidCloudinaryUrl(url, cloudName) || senderId == null) {
+            return false;
+        }
+        return url.contains("/video/upload/") && url.contains("/chat/" + senderId + "/");
     }
 }

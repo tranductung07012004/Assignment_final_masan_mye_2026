@@ -132,7 +132,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
 
         Long receiverId = request.getReceiverId();
         if (receiverId == null) {
-            throw new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND);
+            throw new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND_IN_REQUEST);
         }
 
         if (senderId.equals(receiverId)) {
@@ -145,13 +145,16 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
-        User sender = userRepository.findUserById(senderId)
+        // Cai nay co can check khong nhi
+        User sender = this.userRepository.findUserById(senderId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
 
-        userRepository.findUserById(receiverId)
-                .orElseThrow(() -> new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND));
+        // Cai nay co can check khong nhi
+        this.userRepository.findUserById(receiverId)
+                .orElseThrow(() -> new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND_IN_REQUEST));
 
-        ChatGroup privateGroup = chatGroupRepository
+        // Cai nay co can check khong nhi
+        ChatGroup privateGroup = this.chatGroupRepository
                 .findPrivateChatInformationBetweenMembers(senderId, receiverId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.PRIVATE_CHAT_NOT_FOUND));
 
@@ -337,6 +340,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
+        // Cho nay can check khong nhi, hot path nay nguy hiem qua
         User sender = userRepository.findUserById(senderId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
 
@@ -348,6 +352,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .metadata(resolvedMessage.getMetadata())
                 .build());
 
+        // Cho nay check lam sao nhi, thong tin nay co nen cache lai khong nhi
         List<Long> memberIds = chatGroupMemberRepository.findByGroupId(groupId)
                 .stream()
                 .map(ChatGroupMember::getMemberId)
@@ -441,6 +446,24 @@ public class ChatServiceImpl implements ChatServiceInterface {
             return ResolvedMessageDto.builder()
                     .messageType("IMAGE")
                     .content(imageUrl)
+                    .metadata(null)
+                    .build();
+        }
+
+        if ("VIDEO".equals(normalizedType)) {
+            if (content == null || content.isBlank()) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
+            }
+            String videoUrl = content.trim();
+            if (videoUrl.length() > 2048) {
+                throw new ApplicationException(ErrorCode.VIDEO_URL_IS_TOO_LONG);
+            }
+            if (!CloudinaryUrlValidator.isValidChatVideoUrl(videoUrl, cloudinaryCloudName, senderId)) {
+                throw new ApplicationException(ErrorCode.INVALID_VIDEO_URL);
+            }
+            return ResolvedMessageDto.builder()
+                    .messageType("VIDEO")
+                    .content(videoUrl)
                     .metadata(null)
                     .build();
         }

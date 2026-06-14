@@ -6,12 +6,15 @@ import lombok.Getter;
 public enum ErrorCode {
     USER_NOT_FOUND("User could not be found", 404),
     CURRENT_USER_ID_FROM_TOKEN_IS_NULL("Current user id from token is null", 400),
-    RECEIVER_NOT_FOUND("Receiver could not be found", 404),
+    RECEIVER_NOT_FOUND_IN_REQUEST("Receiver could not be found", 404),
     CANNOT_MESSAGE_SELF("Cannot send a direct message to yourself", 400),
     MESSAGE_CONTENT_REQUIRED("Message content is required", 400),
     MESSAGE_CONTENT_TOO_LONG("Message content must not exceed 500 characters", 400),
     INVALID_MESSAGE_TYPE("Message type is not supported", 400),
     INVALID_IMAGE_URL("Image URL is invalid or not from this application", 400),
+    INVALID_VIDEO_URL("Video URL is invalid or not from this application", 400),
+    INVALID_RESOURCE_TYPE("Resource type must be IMAGE or VIDEO", 400),
+    VIDEO_URL_IS_TOO_LONG("Video URL must not exceed 2048 characters", 400),
     PRIVATE_CHAT_NOT_FOUND("Private chat between these users does not exist", 404),
 
     // Group

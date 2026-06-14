@@ -92,10 +92,10 @@ public class ChatHandler extends TextWebSocketHandler {
             }
         }
 
-        boolean firstDeviceOfUserToConnect = localSessionManagement.register(userId, deviceId, session);
+        boolean firstDeviceOfUserToConnect = this.localSessionManagement.register(userId, deviceId, session);
         // cai nay la de SUBSCRIBE vao redis pub sub channel lan dau tien
         if (firstDeviceOfUserToConnect) {
-            webSocketRedisService.markOnline(userId);
+            this.webSocketRedisService.markOnline(userId);
         }
     }
 
@@ -130,9 +130,9 @@ public class ChatHandler extends TextWebSocketHandler {
         String userId = session.getAttributes().get("userId").toString();
         String deviceId = session.getAttributes().get("deviceId").toString();
 
-        boolean fullyOffline = localSessionManagement.unregister(userId, deviceId, session);
+        boolean fullyOffline = this.localSessionManagement.unregister(userId, deviceId, session);
         if (fullyOffline) {
-            webSocketRedisService.markOffline(userId);
+            this.webSocketRedisService.markOffline(userId);
         }
     }
 
@@ -143,7 +143,7 @@ public class ChatHandler extends TextWebSocketHandler {
         request.setReceiverId(node.get("receiverId").asLong());
 
         try {
-            applyIncomingMessageFields(request, node);
+            validateFieldMessageTypeAndFieldContentForPrivateMessage(request, node);
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid direct message from senderId {}: {}", senderId, e.getMessage());
             return;
@@ -155,10 +155,8 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(savedMessage);
-            publishToUser(String.valueOf(request.getReceiverId()), outboundPayload);
-            publishToUser(senderId, outboundPayload);
-        } catch (ApplicationException e) {
-            logger.warn("Failed to send direct message from senderId {}: {}", senderId, e.getMessage());
+            publishToUser(String.valueOf(request.getReceiverId()), outboundPayload); // Cái này là để gửi tới receiver
+            publishToUser(senderId, outboundPayload); // Cái này là để gửi tới chính sender, để check xem tin nhắn có thực sự được gửi không
         } catch (Exception e) {
             logger.error("Failed to send direct message from senderId: {}", senderId, e);
         }
@@ -171,7 +169,7 @@ public class ChatHandler extends TextWebSocketHandler {
         request.setGroupId(node.get("groupId").asLong());
 
         try {
-            applyIncomingMessageFields(request, node);
+            validateFieldMessageTypeAndFieldContentForGroupMessage(request, node);
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid group message from senderId {}: {}", senderId, e.getMessage());
             return;
@@ -193,24 +191,36 @@ public class ChatHandler extends TextWebSocketHandler {
         }
     }
 
-    private void applyIncomingMessageFields(SendDirectMessageRequest request, JsonNode node) {
-        String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+    private void validateFieldMessageTypeAndFieldContentForPrivateMessage(SendDirectMessageRequest request, JsonNode node) {
+        // Code truoc khi sua: String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+        String messageType = node.path("messageType").asText("TEXT");
         request.setMessageType(messageType);
+        // Code truoc khi sua
+//      if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
+//          throw new IllegalArgumentException(messageType + " message requires content");
+//      }
 
-        if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
+        String content = node.path("content").asText("");
+
+        if (content.isBlank()) {
             throw new IllegalArgumentException(messageType + " message requires content");
         }
-        request.setContent(node.get("content").asText());
+
+        request.setContent(content);
     }
 
-    private void applyIncomingMessageFields(SendGroupMessageRequest request, JsonNode node) {
-        String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+    private void validateFieldMessageTypeAndFieldContentForGroupMessage(SendGroupMessageRequest request, JsonNode node) {
+        // Code truoc khi sua: String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+        String messageType = node.path("messageType").asText("TEXT");
         request.setMessageType(messageType);
 
-        if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
+        String content = node.path("content").asText("");
+
+        if (content.isBlank()) {
             throw new IllegalArgumentException(messageType + " message requires content");
         }
-        request.setContent(node.get("content").asText());
+
+        request.setContent(content);
     }
 
     private void publishToUser(String userId, String messagePayload) {
