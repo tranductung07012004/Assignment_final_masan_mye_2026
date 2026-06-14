@@ -1,4 +1,5 @@
 import GroupAddIcon from '@mui/icons-material/GroupAdd'
+import ImageIcon from '@mui/icons-material/Image'
 import SearchIcon from '@mui/icons-material/Search'
 import SendIcon from '@mui/icons-material/Send'
 import SettingsIcon from '@mui/icons-material/Settings'
@@ -18,7 +19,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { CHAT_LIST_PAGE_SIZE, listChats, loadMessages } from '@/api/chat'
 import CreateGroupDialog from '@/components/messages/CreateGroupDialog'
 import GroupSettingsDrawer from '@/components/messages/GroupSettingsDrawer'
@@ -27,6 +28,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
+import { uploadChatImage } from '@/utils/cloudinaryUpload'
 
 function formatTime(iso: string): string {
   if (!iso) return ''
@@ -61,9 +63,11 @@ export default function MessagesPage() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [imageUploading, setImageUploading] = useState(false)
 
   const fetchIdRef = useRef(0)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const imageInputRef = useRef<HTMLInputElement>(null)
 
   const fetchChats = useCallback(async (keyword: string, pageNum: number) => {
     const fetchId = ++fetchIdRef.current
@@ -174,6 +178,36 @@ export default function MessagesPage() {
     }
 
     setDraft('')
+  }
+
+  async function handleImageSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+    if (!file || !selectedChat) return
+
+    setImageUploading(true)
+    setError(null)
+
+    try {
+      const uploaded = await uploadChatImage(file)
+      if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
+        sendDirect({
+          receiverId: selectedChat.peerId,
+          content: uploaded.secureUrl,
+          messageType: 'IMAGE',
+        })
+      } else if (selectedChat.type === 'GROUP') {
+        sendGroup({
+          groupId: selectedChat.groupId,
+          content: uploaded.secureUrl,
+          messageType: 'IMAGE',
+        })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload image')
+    } finally {
+      setImageUploading(false)
+    }
   }
 
   const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
@@ -398,9 +432,25 @@ export default function MessagesPage() {
                           {msg.senderName}
                         </Typography>
                       )}
-                      <Typography variant="body2" color={msg.isDeleted ? 'text.disabled' : 'inherit'}>
-                        {msg.isDeleted ? 'This message was deleted.' : msg.content}
-                      </Typography>
+                      {msg.isDeleted ? (
+                        <Typography variant="body2" color="text.disabled">
+                          This message was deleted.
+                        </Typography>
+                      ) : msg.messageType === 'IMAGE' && msg.content ? (
+                        <Box
+                          component="img"
+                          src={msg.content}
+                          alt="Shared image"
+                          sx={{
+                            display: 'block',
+                            maxWidth: '100%',
+                            maxHeight: 280,
+                            borderRadius: 1,
+                          }}
+                        />
+                      ) : (
+                        <Typography variant="body2">{msg.content}</Typography>
+                      )}
                     </Paper>
                     <Typography
                       variant="caption"
@@ -421,6 +471,20 @@ export default function MessagesPage() {
 
             <Divider />
             <Box sx={{ p: 2, display: 'flex', gap: 1, bgcolor: 'background.paper' }}>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleImageSelected}
+              />
+              <IconButton
+                aria-label="Attach image"
+                disabled={imageUploading}
+                onClick={() => imageInputRef.current?.click()}
+              >
+                {imageUploading ? <CircularProgress size={20} /> : <ImageIcon />}
+              </IconButton>
               <TextField
                 fullWidth
                 size="small"

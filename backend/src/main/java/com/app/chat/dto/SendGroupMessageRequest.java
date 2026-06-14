@@ -6,4 +6,5 @@ import lombok.Data;
 public class SendGroupMessageRequest {
     private Long groupId;
     private String content;
+    private String messageType;
 }

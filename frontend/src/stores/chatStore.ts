@@ -166,6 +166,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       senderName: mockProfile.fullName,
       senderAvatarUrl: mockProfile.avatarUrl,
       content: 'Group created',
+      messageType: 'TEXT',
       sentAt: now,
       isOwn: true,
       isDeleted: false,

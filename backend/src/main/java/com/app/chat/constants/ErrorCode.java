@@ -10,6 +10,8 @@ public enum ErrorCode {
     CANNOT_MESSAGE_SELF("Cannot send a direct message to yourself", 400),
     MESSAGE_CONTENT_REQUIRED("Message content is required", 400),
     MESSAGE_CONTENT_TOO_LONG("Message content must not exceed 500 characters", 400),
+    INVALID_MESSAGE_TYPE("Message type is not supported", 400),
+    INVALID_IMAGE_URL("Image URL is invalid or not from this application", 400),
     PRIVATE_CHAT_NOT_FOUND("Private chat between these users does not exist", 404),
 
     // Group

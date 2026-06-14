@@ -43,6 +43,7 @@ export type ChatMessageDto = {
   senderAvatarUrl: string | null
   content: string | null
   messageType: string
+  metadata: string | null
   createdAt: string
   deletedAt: string | null
 }
@@ -65,6 +66,7 @@ function mapMessage(dto: ChatMessageDto, currentUserId: number): ChatMessage {
     senderName: dto.senderFullName ?? 'Unknown',
     senderAvatarUrl: dto.senderAvatarUrl ?? null,
     content: dto.deletedAt ? null : dto.content,
+    messageType: dto.messageType ?? 'TEXT',
     sentAt: dto.createdAt,
     isOwn: dto.senderMemberId === currentUserId,
     isDeleted: dto.deletedAt !== null,

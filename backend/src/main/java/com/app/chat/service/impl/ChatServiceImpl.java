@@ -10,6 +10,7 @@ import com.app.chat.dto.GroupInfoResponse;
 import com.app.chat.dto.GroupMemberResponse;
 import com.app.chat.dto.GroupMessageResult;
 import com.app.chat.dto.MessageCursorPageResponse;
+import com.app.chat.dto.ResolvedMessageDto;
 import com.app.chat.dto.SendDirectMessageRequest;
 import com.app.chat.dto.SendGroupMessageRequest;
 import com.app.chat.entity.ChatGroup;
@@ -23,8 +24,10 @@ import com.app.chat.repository.ChatMessageRepository;
 import com.app.chat.repository.FriendRequestRepository;
 import com.app.chat.repository.UserRepository;
 import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.utils.CloudinaryUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -48,19 +51,22 @@ public class ChatServiceImpl implements ChatServiceInterface {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final FriendRequestRepository friendRequestRepository;
+    private final String cloudinaryCloudName;
 
     public ChatServiceImpl(
             ChatGroupRepository injectedChatGroupRepository,
             ChatGroupMemberRepository injectedChatGroupMemberRepository,
             ChatMessageRepository injectedChatMessageRepository,
             UserRepository injectedUserRepository,
-            FriendRequestRepository injectedFriendRequestRepository
+            FriendRequestRepository injectedFriendRequestRepository,
+            @Value("${cloudinary.cloud-name}") String injectedCloudinaryCloudName
     ) {
         this.chatGroupRepository = injectedChatGroupRepository;
         this.chatGroupMemberRepository = injectedChatGroupMemberRepository;
         this.chatMessageRepository = injectedChatMessageRepository;
         this.userRepository = injectedUserRepository;
         this.friendRequestRepository = injectedFriendRequestRepository;
+        this.cloudinaryCloudName = injectedCloudinaryCloudName;
     }
 
     @Override
@@ -133,13 +139,11 @@ public class ChatServiceImpl implements ChatServiceInterface {
             throw new ApplicationException(ErrorCode.CANNOT_MESSAGE_SELF);
         }
 
-        String content = request.getContent();
-        if (content == null || content.isBlank()) {
-            throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
-        }
-        if (content.length() > 500) {
-            throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
-        }
+        ResolvedMessageDto resolvedMessage = resolveOutgoingMessage(
+                senderId,
+                request.getMessageType(),
+                request.getContent()
+        );
 
         User sender = userRepository.findUserById(senderId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
@@ -155,8 +159,9 @@ public class ChatServiceImpl implements ChatServiceInterface {
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
                 .groupId(privateGroup.getId())
                 .senderId(senderId)
-                .content(content.trim())
-                .messageType("TEXT")
+                .content(resolvedMessage.getContent())
+                .messageType(resolvedMessage.getMessageType())
+                .metadata(resolvedMessage.getMetadata())
                 .build());
 
         return toChatMessageResponse(savedMessage, sender);
@@ -326,13 +331,11 @@ public class ChatServiceImpl implements ChatServiceInterface {
         this.checkIfGroupExistedOrThrow(groupId);
         this.checkIfThisIsMemberOrOwnerOfGroupOrElseThrow(groupId, senderId);
 
-        String content = request.getContent();
-        if (content == null || content.isBlank()) {
-            throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
-        }
-        if (content.length() > 500) {
-            throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
-        }
+        ResolvedMessageDto resolvedMessage = resolveOutgoingMessage(
+                senderId,
+                request.getMessageType(),
+                request.getContent()
+        );
 
         User sender = userRepository.findUserById(senderId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
@@ -340,8 +343,9 @@ public class ChatServiceImpl implements ChatServiceInterface {
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
                 .groupId(groupId)
                 .senderId(senderId)
-                .content(content.trim())
-                .messageType("TEXT")
+                .content(resolvedMessage.getContent())
+                .messageType(resolvedMessage.getMessageType())
+                .metadata(resolvedMessage.getMetadata())
                 .build());
 
         List<Long> memberIds = chatGroupMemberRepository.findByGroupId(groupId)
@@ -400,6 +404,48 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .messages(responses)
                 .nextCursor(nextCursor)
                 .build();
+    }
+
+    private ResolvedMessageDto resolveOutgoingMessage(
+            Long senderId,
+            String messageType,
+            String content
+    ) {
+        String normalizedType = messageType == null || messageType.isBlank() ? "TEXT" : messageType.trim();
+
+        if ("TEXT".equals(normalizedType)) {
+            if (content == null || content.isBlank()) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
+            }
+            if (content.length() > 500) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
+            }
+            return ResolvedMessageDto.builder()
+                    .messageType("TEXT")
+                    .content(content.trim())
+                    .metadata(null)
+                    .build();
+        }
+
+        if ("IMAGE".equals(normalizedType)) {
+            if (content == null || content.isBlank()) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_REQUIRED);
+            }
+            String imageUrl = content.trim();
+            if (imageUrl.length() > 2048) {
+                throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
+            }
+            if (!CloudinaryUrlValidator.isValidChatImageUrl(imageUrl, cloudinaryCloudName, senderId)) {
+                throw new ApplicationException(ErrorCode.INVALID_IMAGE_URL);
+            }
+            return ResolvedMessageDto.builder()
+                    .messageType("IMAGE")
+                    .content(imageUrl)
+                    .metadata(null)
+                    .build();
+        }
+
+        throw new ApplicationException(ErrorCode.INVALID_MESSAGE_TYPE);
     }
 
     private ChatGroup findAnyGroupByIdOrThrow(Long groupId) {

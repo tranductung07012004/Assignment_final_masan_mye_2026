@@ -139,14 +139,15 @@ public class ChatHandler extends TextWebSocketHandler {
     private void handleDirectMessage(WebSocketSession session, JsonNode node) {
         String senderId = (String) session.getAttributes().get("userId");
 
-        if (!node.has("content") || node.get("content").isNull()) {
-            logger.warn("Direct message missing content from senderId: {}", senderId);
-            return;
-        }
-
         SendDirectMessageRequest request = new SendDirectMessageRequest();
         request.setReceiverId(node.get("receiverId").asLong());
-        request.setContent(node.get("content").asText());
+
+        try {
+            applyIncomingMessageFields(request, node);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid direct message from senderId {}: {}", senderId, e.getMessage());
+            return;
+        }
 
         try {
             ChatMessageResponse savedMessage = this.chatService.sendDirectMessage(
@@ -166,14 +167,15 @@ public class ChatHandler extends TextWebSocketHandler {
     private void handleGroupMessage(WebSocketSession session, JsonNode node) {
         String senderId = (String) session.getAttributes().get("userId");
 
-        if (!node.has("content") || node.get("content").isNull()) {
-            logger.warn("Group message missing content from senderId: {}", senderId);
-            return;
-        }
-
         SendGroupMessageRequest request = new SendGroupMessageRequest();
         request.setGroupId(node.get("groupId").asLong());
-        request.setContent(node.get("content").asText());
+
+        try {
+            applyIncomingMessageFields(request, node);
+        } catch (IllegalArgumentException e) {
+            logger.warn("Invalid group message from senderId {}: {}", senderId, e.getMessage());
+            return;
+        }
 
         try {
             // Cho nay luu vao database, co kha nang gay nghen vi write DB take time
@@ -189,6 +191,26 @@ public class ChatHandler extends TextWebSocketHandler {
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
         }
+    }
+
+    private void applyIncomingMessageFields(SendDirectMessageRequest request, JsonNode node) {
+        String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+        request.setMessageType(messageType);
+
+        if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
+            throw new IllegalArgumentException(messageType + " message requires content");
+        }
+        request.setContent(node.get("content").asText());
+    }
+
+    private void applyIncomingMessageFields(SendGroupMessageRequest request, JsonNode node) {
+        String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
+        request.setMessageType(messageType);
+
+        if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
+            throw new IllegalArgumentException(messageType + " message requires content");
+        }
+        request.setContent(node.get("content").asText());
     }
 
     private void publishToUser(String userId, String messagePayload) {

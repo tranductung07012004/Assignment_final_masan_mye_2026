@@ -25,6 +25,7 @@ export type ChatMessage = {
   senderName: string
   senderAvatarUrl: string | null
   content: string | null
+  messageType: string
   sentAt: string
   isOwn: boolean
   isDeleted: boolean

@@ -61,7 +61,18 @@ function msg(
   sentAt: string,
   isOwn: boolean,
 ): ChatMessage {
-  return { id, groupId, senderId, senderName, senderAvatarUrl: null, content, sentAt, isOwn, isDeleted: false }
+  return {
+    id,
+    groupId,
+    senderId,
+    senderName,
+    senderAvatarUrl: null,
+    content,
+    messageType: 'TEXT',
+    sentAt,
+    isOwn,
+    isDeleted: false,
+  }
 }
 
 export const mockMessagesByGroupId: Record<number, ChatMessage[]> = {

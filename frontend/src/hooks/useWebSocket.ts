@@ -15,18 +15,22 @@ type IncomingMessageDto = {
   senderAvatarUrl: string | null
   content: string | null
   messageType: string
+  metadata: string | null
   createdAt: string
   deletedAt: string | null
 }
 
-type SendDirectPayload = {
-  receiverId: number
+type OutgoingMessagePayload = {
   content: string
+  messageType?: 'TEXT' | 'IMAGE'
 }
 
-type SendGroupPayload = {
+type SendDirectPayload = OutgoingMessagePayload & {
+  receiverId: number
+}
+
+type SendGroupPayload = OutgoingMessagePayload & {
   groupId: number
-  content: string
 }
 
 export function useWebSocket() {
@@ -84,6 +88,7 @@ export function useWebSocket() {
           senderName: dto.senderFullName ?? 'Unknown',
           senderAvatarUrl: dto.senderAvatarUrl ?? null,
           content: dto.deletedAt ? null : dto.content,
+          messageType: dto.messageType ?? 'TEXT',
           sentAt: dto.createdAt,
           isOwn: dto.senderMemberId === currentUserIdRef.current,
           isDeleted: dto.deletedAt !== null,
