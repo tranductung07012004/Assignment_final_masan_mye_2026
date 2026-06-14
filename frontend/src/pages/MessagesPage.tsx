@@ -215,6 +215,24 @@ export default function MessagesPage() {
     }
   }
 
+  function handleStickerSelect(stickerId: string) {
+    if (!stickerId || !selectedChat) return
+
+    if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
+      sendDirect({
+        receiverId: selectedChat.peerId,
+        content: stickerId,
+        messageType: 'STICKERS',
+      })
+    } else if (selectedChat.type === 'GROUP') {
+      sendGroup({
+        groupId: selectedChat.groupId,
+        content: stickerId,
+        messageType: 'STICKERS',
+      })
+    }
+  }
+
   const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
   const hasMoreHistory = selectedGroupId
     ? (nextCursorByGroupId[selectedGroupId] ?? null) !== null
@@ -254,6 +272,7 @@ export default function MessagesPage() {
             onSend={handleSend}
             onImageSelected={handleImageSelected}
             onVideoSelected={handleVideoSelected}
+            onStickerSelect={handleStickerSelect}
             imageUploading={imageUploading}
             videoUploading={videoUploading}
             videoUploadProgress={videoUploadProgress}

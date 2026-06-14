@@ -1,5 +1,6 @@
 import ImageIcon from '@mui/icons-material/Image'
 import SendIcon from '@mui/icons-material/Send'
+import StickyNote2Icon from '@mui/icons-material/StickyNote2'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import {
   Box,
@@ -9,7 +10,8 @@ import {
   LinearProgress,
   TextField,
 } from '@mui/material'
-import { useRef, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent } from 'react'
+import StickerPicker from '@/components/messages/StickerPicker'
 
 type MessageComposerProps = {
   draft: string
@@ -17,6 +19,7 @@ type MessageComposerProps = {
   onSend: () => void
   onImageSelected: (event: ChangeEvent<HTMLInputElement>) => void
   onVideoSelected: (event: ChangeEvent<HTMLInputElement>) => void
+  onStickerSelect: (stickerId: string) => void
   imageUploading: boolean
   videoUploading: boolean
   videoUploadProgress: number
@@ -28,12 +31,15 @@ export default function MessageComposer({
   onSend,
   onImageSelected,
   onVideoSelected,
+  onStickerSelect,
   imageUploading,
   videoUploading,
   videoUploadProgress,
 }: MessageComposerProps) {
   const imageInputRef = useRef<HTMLInputElement>(null)
   const videoInputRef = useRef<HTMLInputElement>(null)
+  const stickerButtonRef = useRef<HTMLButtonElement>(null)
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false)
   const mediaUploading = imageUploading || videoUploading
 
   return (
@@ -74,6 +80,21 @@ export default function MessageComposer({
         >
           {videoUploading ? <CircularProgress size={20} /> : <VideocamIcon />}
         </IconButton>
+        <IconButton
+          ref={stickerButtonRef}
+          aria-label="Send sticker"
+          disabled={mediaUploading}
+          onClick={() => setStickerPickerOpen(true)}
+        >
+          <StickyNote2Icon />
+        </IconButton>
+        <StickerPicker
+          anchorEl={stickerButtonRef.current}
+          open={stickerPickerOpen}
+          onClose={() => setStickerPickerOpen(false)}
+          onSelect={onStickerSelect}
+          disabled={mediaUploading}
+        />
         <TextField
           fullWidth
           size="small"

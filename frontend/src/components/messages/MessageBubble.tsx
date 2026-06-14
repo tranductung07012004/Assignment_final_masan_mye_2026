@@ -1,4 +1,5 @@
 import { Box, Paper, Typography } from '@mui/material'
+import StickerBubbleContent from '@/components/messages/StickerBubbleContent'
 import type { ChatMessage } from '@/types/chat'
 
 function formatTime(iso: string): string {
@@ -15,6 +16,8 @@ type MessageBubbleProps = {
 }
 
 export default function MessageBubble({ message, showSenderName }: MessageBubbleProps) {
+  const isSticker = !message.isDeleted && message.messageType === 'STICKERS'
+
   return (
     <Box
       sx={{
@@ -25,17 +28,22 @@ export default function MessageBubble({ message, showSenderName }: MessageBubble
       <Paper
         elevation={0}
         sx={{
-          px: 2,
-          py: 1,
+          px: isSticker ? 0 : 2,
+          py: isSticker ? 0 : 1,
           bgcolor: message.isDeleted
             ? 'action.hover'
+            : isSticker
+            ? 'transparent'
             : message.isOwn
             ? 'primary.main'
             : 'background.paper',
-          color: message.isOwn && !message.isDeleted ? 'primary.contrastText' : 'text.primary',
-          border: message.isOwn && !message.isDeleted ? 'none' : 1,
+          color: message.isOwn && !message.isDeleted && !isSticker
+            ? 'primary.contrastText'
+            : 'text.primary',
+          border: message.isOwn && !message.isDeleted && !isSticker ? 'none' : isSticker ? 'none' : 1,
           borderColor: 'divider',
           fontStyle: message.isDeleted ? 'italic' : 'normal',
+          boxShadow: isSticker ? 'none' : undefined,
         }}
       >
         {!message.isOwn && showSenderName && (
@@ -74,6 +82,8 @@ export default function MessageBubble({ message, showSenderName }: MessageBubble
               borderRadius: 1,
             }}
           />
+        ) : message.messageType === 'STICKERS' && message.content ? (
+          <StickerBubbleContent stickerId={message.content} />
         ) : (
           <Typography variant="body2">{message.content}</Typography>
         )}
