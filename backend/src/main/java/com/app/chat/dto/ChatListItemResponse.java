@@ -5,6 +5,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.time.Instant;
 
 @Data
 @Builder
@@ -14,6 +15,11 @@ public class ChatListItemResponse {
     private Long groupId;
     private String type;
     private String title;
-    private String avatarUrl; // avatar of the chat, if the chat is PRIVATE 1-1, then the avatarUrl would be the avatar of the peerMember, if the chat is GROUP then it would be the group avatar. 
-    private Long peerId;     // Populated only for PRIVATE chats — the other participant's user ID. Null for GROUP chats. 
+    private String avatarUrl;
+    private Long peerId;
+    private String lastMessageContent;
+    private String lastMessageType;
+    private Instant lastMessageAt;
+    private Long lastMessageSenderId;
+    private String lastMessageSenderName;
 }

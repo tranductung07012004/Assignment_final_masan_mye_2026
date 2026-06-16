@@ -25,6 +25,8 @@ export default function MessagesPage() {
   const prependMessages = useChatStore((state) => state.prependMessages)
   const unreadCounts = useChatStore((state) => state.unreadCounts)
   const clearUnread = useChatStore((state) => state.clearUnread)
+  const lastMessageByGroupId = useChatStore((state) => state.lastMessageByGroupId)
+  const setLastMessages = useChatStore((state) => state.setLastMessages)
 
   const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
   const { sendDirect, sendGroup, sendMarkRead } = useWebSocket()
@@ -74,6 +76,7 @@ export default function MessagesPage() {
       if (fetchId !== fetchIdRef.current) return
 
       setSidebarChats(result.chats)
+      setLastMessages(result.chats)
       setTotalPages(result.totalPages)
       setTotalElements(result.totalElements)
       setPage(result.page)
@@ -357,6 +360,7 @@ export default function MessagesPage() {
         error={error}
         selectedGroupId={selectedGroupId}
         unreadCounts={unreadCounts}
+        lastMessages={lastMessageByGroupId}
         onChatSelect={handleChatClick}
         onRetry={() => fetchChats(appliedKeyword, page)}
         page={page}
