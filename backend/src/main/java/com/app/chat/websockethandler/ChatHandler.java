@@ -97,6 +97,23 @@ public class ChatHandler extends TextWebSocketHandler {
         if (firstDeviceOfUserToConnect) {
             this.webSocketRedisService.markOnline(userId);
         }
+
+        try {
+            Map<Long, Integer> counts = this.chatService.getUnreadCounts(Long.parseLong(userId));
+            String snapshot = objectMapper.writeValueAsString(Map.of(
+                    "type", "UNREAD_SNAPSHOT",
+                    "counts", counts
+            ));
+            // Fix 3 (broken pipe): gui snapshot qua publishToUser() thay vi session.sendMessage() thang.
+            // publishToUser -> Redis -> pushMessageToLocalWebSocketSession da co san check isOpen() (line ~297)
+            // va xu ly IOException tung device -> mot duong gui duy nhat, mot cho guard duy nhat (gom luon Fix 1/Fix 2),
+            // dong thoi day dung toi moi device online cua user (multi-device) thay vi chi session vua connect.
+            // register (line ~95) + markOnline (line ~98) da chay TRUOC nen findServersForUser da thay user.
+            publishToUser(userId, snapshot);
+        } catch (Exception e) {
+            // Loi that: query DB, serialize JSON... (broken pipe da duoc pushMessageToLocalWebSocketSession nuot ben trong)
+            logger.error("Failed to build/push UNREAD_SNAPSHOT to userId={}", userId, e);
+        }
     }
 
     @Override
@@ -108,6 +125,14 @@ public class ChatHandler extends TextWebSocketHandler {
 
         try {
             JsonNode node = this.objectMapper.readTree(payload);
+
+            if (node.has("type")) {
+                String type = node.get("type").asText();
+                if ("MARK_READ".equals(type)) {
+                    handleMarkRead(session, node);
+                    return;
+                }
+            }
 
             if (node.has("receiverId")) {
                 handleDirectMessage(session, node);
@@ -221,6 +246,29 @@ public class ChatHandler extends TextWebSocketHandler {
         }
 
         request.setContent(content);
+    }
+
+    private void handleMarkRead(WebSocketSession session, JsonNode node) {
+        String userId = (String) session.getAttributes().get("userId");
+        if (!node.has("groupId") || !node.has("lastReadMsgId")) {
+            logger.warn("MARK_READ from userId={} missing groupId or lastReadMsgId", userId);
+            return;
+        }
+
+        long groupId = node.get("groupId").asLong();
+        long lastReadMsgId = node.get("lastReadMsgId").asLong();
+
+        try {
+            this.chatService.markRead(Long.parseLong(userId), groupId, lastReadMsgId);
+            String readSync = objectMapper.writeValueAsString(Map.of(
+                    "type", "READ_SYNC",
+                    "groupId", groupId,
+                    "count", 0
+            ));
+            publishToUser(userId, readSync);
+        } catch (Exception e) {
+            logger.error("Failed to handle MARK_READ for userId={}, groupId={}", userId, groupId, e);
+        }
     }
 
     private void publishToUser(String userId, String messagePayload) {

@@ -1,5 +1,7 @@
 package com.app.chat.service;
 
+import java.util.Map;
+
 import com.app.chat.dto.AddGroupMemberRequest;
 import com.app.chat.dto.ChatListItemResponse;
 import com.app.chat.dto.ChatMessageResponse;
@@ -34,4 +36,8 @@ public interface ChatServiceInterface {
     GroupMessageResult sendGroupMessage(Long senderId, SendGroupMessageRequest request);
 
     MessageCursorPageResponse loadMessages(Long requesterId, Long groupId, Long beforeId, int size);
+
+    Map<Long, Integer> getUnreadCounts(Long userId);
+
+    void markRead(Long userId, Long groupId, Long lastReadMsgId);
 }

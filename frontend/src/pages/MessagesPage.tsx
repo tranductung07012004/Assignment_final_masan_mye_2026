@@ -12,6 +12,8 @@ import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
 import { uploadChatImage, uploadChatVideo } from '@/utils/cloudinaryUpload'
 
+const MARK_READ_THROTTLE_MS = 2500
+
 export default function MessagesPage() {
   const messagesByGroupId = useChatStore((state) => state.messagesByGroupId)
   const nextCursorByGroupId = useChatStore((state) => state.nextCursorByGroupId)
@@ -19,9 +21,14 @@ export default function MessagesPage() {
   const selectChat = useChatStore((state) => state.selectChat)
   const setMessages = useChatStore((state) => state.setMessages)
   const prependMessages = useChatStore((state) => state.prependMessages)
+  const unreadCounts = useChatStore((state) => state.unreadCounts)
+  const clearUnread = useChatStore((state) => state.clearUnread)
 
   const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
-  const { sendDirect, sendGroup } = useWebSocket()
+  const { sendDirect, sendGroup, sendMarkRead } = useWebSocket()
+
+  const markReadThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastMarkReadGroupRef = useRef<number | null>(null)
 
   const [searchInput, setSearchInput] = useState('')
   const [appliedKeyword, setAppliedKeyword] = useState('')
@@ -97,6 +104,70 @@ export default function MessagesPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messagesByGroupId, selectedGroupId])
+
+  const flushMarkRead = useCallback(
+    (groupId: number) => {
+      const messages = messagesByGroupId[groupId]
+      if (!messages || messages.length === 0) return
+      const lastMsg = messages[messages.length - 1]
+      sendMarkRead({ type: 'MARK_READ', groupId, lastReadMsgId: lastMsg.id })
+      clearUnread(groupId)
+    },
+    [messagesByGroupId, sendMarkRead, clearUnread],
+  )
+
+  const scheduleMarkRead = useCallback(
+    (groupId: number) => {
+      if (markReadThrottleRef.current) clearTimeout(markReadThrottleRef.current)
+      markReadThrottleRef.current = setTimeout(() => {
+        flushMarkRead(groupId)
+        markReadThrottleRef.current = null
+      }, MARK_READ_THROTTLE_MS)
+    },
+    [flushMarkRead],
+  )
+
+  useEffect(() => {
+    if (!selectedGroupId) return
+
+    if (lastMarkReadGroupRef.current && lastMarkReadGroupRef.current !== selectedGroupId) {
+      if (markReadThrottleRef.current) {
+        clearTimeout(markReadThrottleRef.current)
+        markReadThrottleRef.current = null
+      }
+      flushMarkRead(lastMarkReadGroupRef.current)
+    }
+
+    lastMarkReadGroupRef.current = selectedGroupId
+    flushMarkRead(selectedGroupId)
+
+    return () => {
+      if (markReadThrottleRef.current) {
+        clearTimeout(markReadThrottleRef.current)
+        markReadThrottleRef.current = null
+      }
+    }
+  }, [selectedGroupId])
+
+  useEffect(() => {
+    if (!selectedGroupId) return
+    const messages = messagesByGroupId[selectedGroupId]
+    if (!messages || messages.length === 0) return
+    scheduleMarkRead(selectedGroupId)
+  }, [messagesByGroupId, selectedGroupId, scheduleMarkRead])
+
+  useEffect(() => {
+    function handleBlur() {
+      if (!selectedGroupId) return
+      if (markReadThrottleRef.current) {
+        clearTimeout(markReadThrottleRef.current)
+        markReadThrottleRef.current = null
+      }
+      flushMarkRead(selectedGroupId)
+    }
+    window.addEventListener('blur', handleBlur)
+    return () => window.removeEventListener('blur', handleBlur)
+  }, [selectedGroupId, flushMarkRead])
 
   function applySearch() {
     const keyword = searchInput.trim()
@@ -249,6 +320,7 @@ export default function MessagesPage() {
         loading={loading}
         error={error}
         selectedGroupId={selectedGroupId}
+        unreadCounts={unreadCounts}
         onChatSelect={handleChatClick}
         onRetry={() => fetchChats(appliedKeyword, page)}
         page={page}

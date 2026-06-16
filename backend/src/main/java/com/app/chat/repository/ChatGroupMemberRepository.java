@@ -89,4 +89,34 @@ public interface ChatGroupMemberRepository extends JpaRepository<ChatGroupMember
             WHERE group_id = :groupId
             """, nativeQuery = true)
     void deleteByGroupId(@Param("groupId") Long groupId);
+
+    @Query(value = """
+            SELECT cgm.group_id AS groupId, c.unread AS unreadCount
+            FROM chat_group_members cgm
+            CROSS JOIN LATERAL (
+                SELECT COUNT(*) AS unread FROM (
+                    SELECT 1 FROM chat_messages cm
+                    WHERE cm.group_id = cgm.group_id
+                      AND cm.id > COALESCE(cgm.last_read_msg_id, 0)
+                      AND cm.sender_id != cgm.member_id
+                      AND cm.deleted_at IS NULL
+                    LIMIT 100
+                ) x
+            ) c
+            WHERE cgm.member_id = :userId
+            """, nativeQuery = true)
+    List<Object[]> findUnreadCountsForUser(@Param("userId") Long userId);
+
+    @Modifying
+    @Query(value = """
+            UPDATE chat_group_members
+            SET last_read_msg_id = GREATEST(COALESCE(last_read_msg_id, 0), :lastReadMsgId)
+            WHERE group_id = :groupId
+              AND member_id = :memberId
+            """, nativeQuery = true)
+    void advanceWatermark(
+            @Param("groupId") Long groupId,
+            @Param("memberId") Long memberId,
+            @Param("lastReadMsgId") Long lastReadMsgId
+    );
 }
