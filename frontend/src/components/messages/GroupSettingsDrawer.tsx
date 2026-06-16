@@ -3,6 +3,7 @@ import CloseIcon from '@mui/icons-material/Close'
 import {
   Alert,
   Avatar,
+  Badge,
   Box,
   Button,
   Chip,
@@ -43,6 +44,7 @@ export default function GroupSettingsDrawer({
   const addMemberToGroup = useChatStore((state) => state.addMemberToGroup)
   const removeMemberFromGroup = useChatStore((state) => state.removeMemberFromGroup)
   const leaveGroup = useChatStore((state) => state.leaveGroup)
+  const presenceById = useChatStore((state) => state.presenceById)
 
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null)
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
@@ -137,7 +139,22 @@ export default function GroupSettingsDrawer({
                   }
                 >
                   <ListItemAvatar>
-                    <Avatar src={member.avatarUrl ?? undefined} alt={member.fullName} />
+                    <Badge
+                      overlap="circular"
+                      anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                      variant="dot"
+                      sx={{
+                        '& .MuiBadge-badge': {
+                          bgcolor: presenceById[member.userId] ? 'success.main' : 'grey.400',
+                          boxShadow: '0 0 0 2px white',
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                        },
+                      }}
+                    >
+                      <Avatar src={member.avatarUrl ?? undefined} alt={member.fullName} />
+                    </Badge>
                   </ListItemAvatar>
                   <ListItemText
                     primary={

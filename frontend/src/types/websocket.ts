@@ -14,3 +14,19 @@ export type ReadSync = {
   groupId: number
   count: number
 }
+
+export type Presence = {
+  type: 'PRESENCE'
+  userId: number
+  status: 'ONLINE' | 'OFFLINE'
+}
+
+export type PresenceSnapshot = {
+  type: 'PRESENCE_SNAPSHOT'
+  statuses: Record<string, boolean>
+}
+
+export type PresenceQuery = {
+  type: 'PRESENCE_QUERY'
+  userIds: number[]
+}

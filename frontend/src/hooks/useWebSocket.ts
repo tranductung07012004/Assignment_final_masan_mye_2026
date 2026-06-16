@@ -3,7 +3,7 @@ import { useAuthStore } from '@/stores/authStore'
 import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import type { ChatMessage } from '@/types/chat'
-import type { MarkRead } from '@/types/websocket'
+import type { MarkRead, PresenceQuery } from '@/types/websocket'
 import { getDeviceId } from '@/utils/deviceId'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8080'
@@ -45,6 +45,8 @@ export function useWebSocket() {
   const incrementUnread = useChatStore((state) => state.incrementUnread)
   const clearUnread = useChatStore((state) => state.clearUnread)
   const updateLastMessage = useChatStore((state) => state.updateLastMessage)
+  const setPresence = useChatStore((state) => state.setPresence)
+  const mergePresence = useChatStore((state) => state.mergePresence)
   const selectedGroupId = useChatStore((state) => state.selectedGroupId)
   const currentUserIdRef = useRef(currentUserId)
   const appendMessageRef = useRef(appendMessage)
@@ -52,6 +54,8 @@ export function useWebSocket() {
   const incrementUnreadRef = useRef(incrementUnread)
   const clearUnreadRef = useRef(clearUnread)
   const updateLastMessageRef = useRef(updateLastMessage)
+  const setPresenceRef = useRef(setPresence)
+  const mergePresenceRef = useRef(mergePresence)
   const selectedGroupIdRef = useRef(selectedGroupId)
 
   currentUserIdRef.current = currentUserId
@@ -60,6 +64,8 @@ export function useWebSocket() {
   incrementUnreadRef.current = incrementUnread
   clearUnreadRef.current = clearUnread
   updateLastMessageRef.current = updateLastMessage
+  setPresenceRef.current = setPresence
+  mergePresenceRef.current = mergePresence
   selectedGroupIdRef.current = selectedGroupId
 
   const clearReconnectTimer = () => {
@@ -100,6 +106,16 @@ export function useWebSocket() {
 
         if (data.type === 'UNREAD_SNAPSHOT') {
           setUnreadCountsRef.current(data.counts as Record<string, number>)
+          return
+        }
+
+        if (data.type === 'PRESENCE') {
+          setPresenceRef.current(data.userId as number, data.status === 'ONLINE')
+          return
+        }
+
+        if (data.type === 'PRESENCE_SNAPSHOT') {
+          mergePresenceRef.current(data.statuses as Record<string, boolean>)
           return
         }
 
@@ -194,5 +210,12 @@ export function useWebSocket() {
     }
   }, [])
 
-  return { sendDirect, sendGroup, sendMarkRead }
+  const sendPresenceQuery = useCallback((userIds: number[]) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const payload: PresenceQuery = { type: 'PRESENCE_QUERY', userIds }
+      wsRef.current.send(JSON.stringify(payload))
+    }
+  }, [])
+
+  return { sendDirect, sendGroup, sendMarkRead, sendPresenceQuery }
 }

@@ -6,6 +6,10 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -49,6 +53,32 @@ public class WebSocketRedisService {
 
     public Set<String> findServersForUser(String userId) {
         return redisTemplate.opsForSet().members(presenceKey(userId));
+    }
+
+    public Set<String> filterOnline(Collection<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) return Set.of();
+
+        List<String> idList = new ArrayList<>(userIds);
+        List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (String userId : idList) {
+                byte[] key = presenceKey(userId).getBytes(StandardCharsets.UTF_8);
+                connection.keyCommands().exists(key);
+            }
+            // Bat buoc phai tra null trong ham executePipelined(), nhung gia tri tra ve cua ham lambda nay khong duoc su dung, 
+            // the nen tra ve null giong nhu la mot cai hinh thuc bat buoc thoi chu khong anh huong den ket qua
+            return null;
+        });
+
+        Set<String> online = new HashSet<>();
+        for (int i = 0; i < idList.size(); i++) {
+            Object result = results.get(i);
+            System.out.println("result: " + result);
+            // Can make sure xem la cai result la dang integer 0/1 hay boolean true/false
+            if (Boolean.TRUE.equals(result)) {
+                online.add(idList.get(i));
+            }
+        }
+        return online;
     }
 
     private static String presenceKey(String userId) {
