@@ -3,12 +3,12 @@
 #   → chỉ bật redis + database (localhost:6379, localhost:5432)
 #
 # Full stack (app trong Docker + nginx):
-#   docker compose --profile full up -d --build
-#   docker compose --profile full up -d --build --scale app=3
+#   docker compose --profile prod up -d --build
+#   docker compose --profile prod up -d --build --scale app=3
 
 services:
   nginx:
-    profiles: ["full"]
+    profiles: ["prod"]
     image: nginx:1.27-alpine
     container_name: nginx-chat
     ports:
@@ -21,17 +21,15 @@ services:
       - backend
 
   app:
-    profiles: ["full"]
+    profiles: ["prod"]
     build: .
-    environment:
-      DB_URL: jdbc:postgresql://database:5432/db
-      DB_USERNAME: user
-      DB_PASSWORD: "123"
-      REDIS_HOST: redis
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+    env_file:
+      - .env.prod
     depends_on:
-      - redis
-      - database
+      redis:
+        condition: service_started
+      database:
+        condition: service_healthy
     networks:
       - backend
 
@@ -61,6 +59,11 @@ services:
       - database_data:/var/lib/postgresql/data
       - ./db_script.sql:/docker-entrypoint-initdb.d/01-schema.sql
       - ./sample.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - backend
 
