@@ -1,6 +1,7 @@
 import { getProfile, updateProfile as updateProfileApi } from '@/api/profile'
 import { mockProfile } from '@/mock/profile'
 import type { Profile, UpdateProfileRequest } from '@/types/profile'
+import { toast } from '@/utils/toast'
 import { create } from 'zustand'
 
 type ProfileState = {
@@ -24,6 +25,7 @@ export const useProfileStore = create<ProfileState>((set, get) => ({
       set({ profile, isFromMock: false })
     } catch {
       set({ profile: mockProfile, isFromMock: true })
+      toast.warning('Could not load profile. Showing offline data.')
     } finally {
       set({ isLoading: false })
     }
