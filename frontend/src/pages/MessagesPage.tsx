@@ -1,5 +1,5 @@
 import { Box } from '@mui/material'
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from 'react'
 import { CHAT_LIST_PAGE_SIZE, listChats, loadMessages } from '@/api/chat'
 import ChatEmptyState from '@/components/messages/ChatEmptyState'
 import ChatPanel from '@/components/messages/ChatPanel'
@@ -13,6 +13,8 @@ import type { ChatListItem } from '@/types/chat'
 import { uploadChatImage, uploadChatVideo } from '@/utils/cloudinaryUpload'
 
 const MARK_READ_THROTTLE_MS = 2500
+
+type ScrollIntent = 'initial' | 'bottom' | 'preserve' | null
 
 export default function MessagesPage() {
   const messagesByGroupId = useChatStore((state) => state.messagesByGroupId)
@@ -49,7 +51,13 @@ export default function MessagesPage() {
   const [videoUploadProgress, setVideoUploadProgress] = useState(0)
 
   const fetchIdRef = useRef(0)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const messageListRef = useRef<HTMLDivElement>(null)
+  const scrollIntentRef = useRef<ScrollIntent>(null)
+  const preserveScrollRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null)
+
+  const requestScrollToBottom = useCallback(() => {
+    scrollIntentRef.current = 'bottom'
+  }, [])
 
   const fetchChats = useCallback(async (keyword: string, pageNum: number) => {
     const fetchId = ++fetchIdRef.current
@@ -90,6 +98,7 @@ export default function MessagesPage() {
       setHistoryLoading(true)
       try {
         const result = await loadMessages(selectedGroupId!, currentUserId!, null)
+        scrollIntentRef.current = 'initial'
         setMessages(selectedGroupId!, result.messages, result.nextCursor)
       } catch {
         // silently fail — existing messages stay visible
@@ -101,9 +110,24 @@ export default function MessagesPage() {
     fetchHistory()
   }, [selectedGroupId, currentUserId, setMessages])
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messagesByGroupId, selectedGroupId])
+  const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
+
+  useLayoutEffect(() => {
+    const container = messageListRef.current
+    if (!container) return
+
+    const intent = scrollIntentRef.current
+    if (intent === 'bottom' || intent === 'initial') {
+      container.scrollTop = container.scrollHeight
+      scrollIntentRef.current = null
+      preserveScrollRef.current = null
+    } else if (intent === 'preserve' && preserveScrollRef.current) {
+      const { scrollHeight, scrollTop } = preserveScrollRef.current
+      container.scrollTop = scrollTop + (container.scrollHeight - scrollHeight)
+      scrollIntentRef.current = null
+      preserveScrollRef.current = null
+    }
+  }, [messages, selectedGroupId])
 
   const flushMarkRead = useCallback(
     (groupId: number) => {
@@ -200,6 +224,15 @@ export default function MessagesPage() {
     const cursor = nextCursorByGroupId[selectedGroupId]
     if (cursor == null) return
 
+    const container = messageListRef.current
+    if (container) {
+      preserveScrollRef.current = {
+        scrollHeight: container.scrollHeight,
+        scrollTop: container.scrollTop,
+      }
+      scrollIntentRef.current = 'preserve'
+    }
+
     setHistoryLoading(true)
     try {
       const result = await loadMessages(selectedGroupId, currentUserId, cursor)
@@ -222,6 +255,7 @@ export default function MessagesPage() {
     }
 
     setDraft('')
+    requestScrollToBottom()
   }
 
   async function handleImageSelected(event: ChangeEvent<HTMLInputElement>) {
@@ -247,6 +281,7 @@ export default function MessagesPage() {
           messageType: 'IMAGE',
         })
       }
+      requestScrollToBottom()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload image')
     } finally {
@@ -278,6 +313,7 @@ export default function MessagesPage() {
           messageType: 'VIDEO',
         })
       }
+      requestScrollToBottom()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to upload video')
     } finally {
@@ -302,15 +338,15 @@ export default function MessagesPage() {
         messageType: 'STICKERS',
       })
     }
+    requestScrollToBottom()
   }
 
-  const messages = selectedGroupId ? (messagesByGroupId[selectedGroupId] ?? []) : []
   const hasMoreHistory = selectedGroupId
     ? (nextCursorByGroupId[selectedGroupId] ?? null) !== null
     : false
 
   return (
-    <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+    <Box sx={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       <ConversationSidebar
         searchInput={searchInput}
         onSearchInputChange={setSearchInput}
@@ -329,7 +365,7 @@ export default function MessagesPage() {
         onPageChange={setPage}
       />
 
-      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
         {selectedChat ? (
           <ChatPanel
             chat={selectedChat}
@@ -338,7 +374,7 @@ export default function MessagesPage() {
             hasMoreHistory={hasMoreHistory}
             onLoadOlder={handleLoadOlder}
             onSettingsClick={() => setSettingsOpen(true)}
-            messagesEndRef={messagesEndRef}
+            messageListRef={messageListRef}
             draft={draft}
             onDraftChange={setDraft}
             onSend={handleSend}

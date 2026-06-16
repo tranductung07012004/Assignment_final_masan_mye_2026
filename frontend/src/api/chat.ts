@@ -3,6 +3,7 @@ import type { ApiResponse, SpringPage } from '@/types/api'
 import type { ChatListItem, ChatMessage, ChatType } from '@/types/chat'
 
 export const CHAT_LIST_PAGE_SIZE = 5
+export const MESSAGE_PAGE_SIZE = 5
 
 export type ChatListItemDto = {
   groupId: number
@@ -77,7 +78,7 @@ export async function loadMessages(
   groupId: number,
   currentUserId: number,
   beforeId?: number | null,
-  size = 20,
+  size = MESSAGE_PAGE_SIZE,
 ): Promise<LoadMessagesResult> {
   const query = new URLSearchParams({ size: String(size) })
   if (beforeId != null) query.set('beforeId', String(beforeId))

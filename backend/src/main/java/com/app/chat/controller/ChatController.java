@@ -74,7 +74,7 @@ public class ChatController {
     public ResponseEntity<ApiResponse<MessageCursorPageResponse>> getMessages(
             @PathVariable Long groupId,
             @RequestParam(required = false) Long beforeId,
-            @RequestParam(defaultValue = "20") int size
+            @RequestParam(defaultValue = "5") int size
     ) {
         Long currentUserId = SecurityUtil.getCurrentUserId();
 

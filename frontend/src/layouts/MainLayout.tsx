@@ -15,14 +15,24 @@ export default function MainLayout() {
   return (
     <Box
       sx={{
-        minHeight: '100vh',
+        height: '100vh',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
         bgcolor: 'background.default',
       }}
     >
       <AppHeader />
-      <Box component="main" sx={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <Box
+        component="main"
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+        }}
+      >
         <Outlet />
       </Box>
       <AppFooter />
