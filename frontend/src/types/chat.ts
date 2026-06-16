@@ -16,6 +16,19 @@ export type ChatListItem = {
   avatarUrl: string | null
   /** Only present for PRIVATE chats — the other participant's user ID. */
   peerId?: number | null
+  lastMessageContent?: string | null
+  lastMessageType?: string | null
+  lastMessageAt?: string | null
+  lastMessageSenderId?: number | null
+  lastMessageSenderName?: string | null
+}
+
+export type LastMessageEntry = {
+  content: string | null
+  type: string
+  at: string
+  senderId: number
+  senderName: string | null
 }
 
 export type ChatMessageType = 'TEXT' | 'IMAGE' | 'VIDEO' | 'STICKERS'

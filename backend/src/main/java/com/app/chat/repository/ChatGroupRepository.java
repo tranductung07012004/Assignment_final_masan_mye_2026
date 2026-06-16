@@ -42,7 +42,12 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
                 CASE
                     WHEN cg.type = 'GROUP' THEN cg.avatar_url ELSE peer.avatar_url
                 END AS avatarUrl,
-                peer_member.member_id AS peerId
+                peer_member.member_id AS peerId,
+                last_msg.content        AS lastMessageContent,
+                last_msg.message_type   AS lastMessageType,
+                last_msg.created_at     AS lastMessageAt,
+                last_msg.sender_id      AS lastMessageSenderId,
+                last_msg.sender_name    AS lastMessageSenderName
 
             FROM chat_groups cg
 
@@ -56,10 +61,22 @@ public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
             LEFT JOIN users peer
                 ON peer.id = peer_member.member_id
 
+            LEFT JOIN LATERAL (
+                SELECT cm.content, cm.message_type, cm.created_at,
+                       cm.sender_id, sender.full_name AS sender_name
+                FROM chat_messages cm
+                JOIN users sender ON sender.id = cm.sender_id
+                WHERE cm.group_id = cg.id
+                  AND cm.deleted_at IS NULL
+                ORDER BY cm.id DESC
+                LIMIT 1
+            ) last_msg ON true
+
             WHERE
             ((cg.type = 'GROUP' AND cg.title ILIKE :keyword )
             OR
             (cg.type = 'PRIVATE' AND peer.full_name ILIKE :keyword ))
+            ORDER BY last_msg.created_at DESC NULLS LAST, cg.id DESC
             """,
 
             countQuery = """

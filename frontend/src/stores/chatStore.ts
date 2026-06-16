@@ -12,6 +12,7 @@ import type {
   ChatMessage,
   CreateGroupInput,
   GroupMember,
+  LastMessageEntry,
 } from '@/types/chat'
 import { CURRENT_USER_ID, MAX_GROUP_MEMBERS } from '@/types/chat'
 import { create } from 'zustand'
@@ -25,6 +26,7 @@ type ChatState = {
   nextGroupId: number
   nextMessageId: number
   unreadCounts: Record<number, number>
+  lastMessageByGroupId: Record<number, LastMessageEntry>
 
   selectChat: (groupId: number) => void
   getMessages: (groupId: number) => ChatMessage[]
@@ -36,12 +38,14 @@ type ChatState = {
   removeMemberFromGroup: (groupId: number, memberId: number) => void
   leaveGroup: (groupId: number) => void
   getAddableFriends: (groupId: number) => typeof mockFriends
+  setLastMessages: (chats: ChatListItem[]) => void
   setUnreadCounts: (counts: Record<string, number>) => void
   incrementUnread: (groupId: number) => void
   clearUnread: (groupId: number) => void
   setMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
   prependMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
   appendMessage: (message: ChatMessage) => void
+  updateLastMessage: (groupId: number, payload: LastMessageEntry) => void
 }
 
 function getPrivateChatPeerId(chat: ChatListItem, members: GroupMember[]): number | null {
@@ -65,6 +69,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   nextGroupId: INITIAL_NEXT_GROUP_ID,
   nextMessageId: INITIAL_NEXT_MESSAGE_ID,
   unreadCounts: {},
+  lastMessageByGroupId: {},
 
   selectChat: (groupId) => set({ selectedGroupId: groupId }),
 
@@ -259,6 +264,23 @@ export const useChatStore = create<ChatState>((set, get) => ({
     })
   },
 
+  setLastMessages: (chats) =>
+    set(() => {
+      const map: Record<number, LastMessageEntry> = {}
+      for (const chat of chats) {
+        if (chat.lastMessageType) {
+          map[chat.groupId] = {
+            content: chat.lastMessageContent ?? null,
+            type: chat.lastMessageType,
+            at: chat.lastMessageAt ?? '',
+            senderId: chat.lastMessageSenderId ?? 0,
+            senderName: chat.lastMessageSenderName ?? null,
+          }
+        }
+      }
+      return { lastMessageByGroupId: map }
+    }),
+
   setUnreadCounts: (counts) =>
     set(() => {
       const parsed: Record<number, number> = {}
@@ -318,4 +340,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       }
     }),
+
+  updateLastMessage: (groupId, payload) =>
+    set((state) => ({
+      lastMessageByGroupId: { ...state.lastMessageByGroupId, [groupId]: payload },
+    })),
 }))

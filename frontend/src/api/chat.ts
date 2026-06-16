@@ -11,6 +11,11 @@ export type ChatListItemDto = {
   title: string
   avatarUrl: string | null
   peerId: number | null
+  lastMessageContent: string | null
+  lastMessageType: string | null
+  lastMessageAt: string | null
+  lastMessageSenderId: number | null
+  lastMessageSenderName: string | null
 }
 
 export type ListChatsParams = {
@@ -33,6 +38,11 @@ function mapChatListItem(dto: ChatListItemDto): ChatListItem {
     title: dto.title,
     avatarUrl: dto.avatarUrl,
     peerId: dto.peerId ?? null,
+    lastMessageContent: dto.lastMessageContent ?? null,
+    lastMessageType: dto.lastMessageType ?? null,
+    lastMessageAt: dto.lastMessageAt ?? null,
+    lastMessageSenderId: dto.lastMessageSenderId ?? null,
+    lastMessageSenderName: dto.lastMessageSenderName ?? null,
   }
 }
 

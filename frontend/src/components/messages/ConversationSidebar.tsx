@@ -13,7 +13,7 @@ import {
 } from '@mui/material'
 import ConversationListItem from '@/components/messages/ConversationListItem'
 import ListPagination from '@/components/common/ListPagination'
-import type { ChatListItem } from '@/types/chat'
+import type { ChatListItem, LastMessageEntry } from '@/types/chat'
 
 type ConversationSidebarProps = {
   searchInput: string
@@ -25,6 +25,7 @@ type ConversationSidebarProps = {
   error: string | null
   selectedGroupId: number | null
   unreadCounts: Record<number, number>
+  lastMessages: Record<number, LastMessageEntry>
   onChatSelect: (chat: ChatListItem) => void
   onRetry: () => void
   page: number
@@ -43,6 +44,7 @@ export default function ConversationSidebar({
   error,
   selectedGroupId,
   unreadCounts,
+  lastMessages,
   onChatSelect,
   onRetry,
   page,
@@ -140,6 +142,7 @@ export default function ConversationSidebar({
               chat={chat}
               selected={chat.groupId === selectedGroupId}
               unreadCount={unreadCounts[chat.groupId] ?? 0}
+              lastMessage={lastMessages[chat.groupId]}
               onClick={() => onChatSelect(chat)}
             />
           ))

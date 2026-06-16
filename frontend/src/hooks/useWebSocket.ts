@@ -44,12 +44,14 @@ export function useWebSocket() {
   const setUnreadCounts = useChatStore((state) => state.setUnreadCounts)
   const incrementUnread = useChatStore((state) => state.incrementUnread)
   const clearUnread = useChatStore((state) => state.clearUnread)
+  const updateLastMessage = useChatStore((state) => state.updateLastMessage)
   const selectedGroupId = useChatStore((state) => state.selectedGroupId)
   const currentUserIdRef = useRef(currentUserId)
   const appendMessageRef = useRef(appendMessage)
   const setUnreadCountsRef = useRef(setUnreadCounts)
   const incrementUnreadRef = useRef(incrementUnread)
   const clearUnreadRef = useRef(clearUnread)
+  const updateLastMessageRef = useRef(updateLastMessage)
   const selectedGroupIdRef = useRef(selectedGroupId)
 
   currentUserIdRef.current = currentUserId
@@ -57,6 +59,7 @@ export function useWebSocket() {
   setUnreadCountsRef.current = setUnreadCounts
   incrementUnreadRef.current = incrementUnread
   clearUnreadRef.current = clearUnread
+  updateLastMessageRef.current = updateLastMessage
   selectedGroupIdRef.current = selectedGroupId
 
   const clearReconnectTimer = () => {
@@ -125,6 +128,13 @@ export function useWebSocket() {
           isDeleted: dto.deletedAt !== null,
         }
         appendMessageRef.current(message)
+        updateLastMessageRef.current(dto.groupId, {
+          content: dto.content,
+          type: dto.messageType ?? 'TEXT',
+          at: dto.createdAt,
+          senderId: dto.senderMemberId,
+          senderName: dto.senderFullName,
+        })
 
         if (!isOwn && dto.groupId !== selectedGroupIdRef.current) {
           incrementUnreadRef.current(dto.groupId)
