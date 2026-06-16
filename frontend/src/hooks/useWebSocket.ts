@@ -5,8 +5,10 @@ import { useProfileStore } from '@/stores/profileStore'
 import type { ChatMessage } from '@/types/chat'
 import type { MarkRead, PresenceQuery } from '@/types/websocket'
 import { getDeviceId } from '@/utils/deviceId'
+import { toast } from '@/utils/toast'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8080'
+const WS_RECONNECT_TOAST_KEY = 'ws-reconnect'
 
 type IncomingMessageDto = {
   id: number
@@ -57,6 +59,8 @@ export function useWebSocket() {
   const setPresenceRef = useRef(setPresence)
   const mergePresenceRef = useRef(mergePresence)
   const selectedGroupIdRef = useRef(selectedGroupId)
+  const hasConnectedRef = useRef(false)
+  const reconnectToastShownRef = useRef(false)
 
   currentUserIdRef.current = currentUserId
   appendMessageRef.current = appendMessage
@@ -98,6 +102,12 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       clearReconnectTimer()
+      if (reconnectToastShownRef.current) {
+        toast.close(WS_RECONNECT_TOAST_KEY)
+        toast.success('Reconnected')
+        reconnectToastShownRef.current = false
+      }
+      hasConnectedRef.current = true
     }
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -169,6 +179,13 @@ export function useWebSocket() {
         wsRef.current = null
       }
       if (!isCurrent || intentionalCloseRef.current) return
+      if (hasConnectedRef.current && !reconnectToastShownRef.current) {
+        toast.info('Connection lost. Reconnecting…', {
+          persist: true,
+          key: WS_RECONNECT_TOAST_KEY,
+        })
+        reconnectToastShownRef.current = true
+      }
       clearReconnectTimer()
       reconnectTimerRef.current = setTimeout(connect, 3000)
     }
@@ -188,20 +205,22 @@ export function useWebSocket() {
     }
   }, [connect])
 
-  const sendDirect = useCallback((payload: SendDirectPayload) => {
+  const sendDirect = useCallback((payload: SendDirectPayload): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(payload))
-      return
+      return true
     }
-    console.warn('WebSocket is not connected — message was not sent')
+    toast.error('Not connected. Message was not sent.')
+    return false
   }, [])
 
-  const sendGroup = useCallback((payload: SendGroupPayload) => {
+  const sendGroup = useCallback((payload: SendGroupPayload): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(payload))
-      return
+      return true
     }
-    console.warn('WebSocket is not connected — message was not sent')
+    toast.error('Not connected. Message was not sent.')
+    return false
   }, [])
 
   const sendMarkRead = useCallback((payload: MarkRead) => {

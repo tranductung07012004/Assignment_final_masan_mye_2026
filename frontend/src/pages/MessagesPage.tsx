@@ -12,6 +12,7 @@ import { useProfileStore } from '@/stores/profileStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
 import { uploadChatImage, uploadChatVideo } from '@/utils/cloudinaryUpload'
+import { toast } from '@/utils/toast'
 
 const MARK_READ_THROTTLE_MS = 2500
 
@@ -116,8 +117,9 @@ export default function MessagesPage() {
       const memberIds = members.map((m) => m.userId)
       if (memberIds.length > 0) sendPresenceQuery(memberIds)
     }).catch((err) => {
-      console.error(err)
-      // silently fail — stale data stays visible
+      toast.error(
+        err instanceof Error ? err.message : 'Failed to load group settings',
+      )
     })
   }, [settingsOpen, selectedGroupId])
 
@@ -130,8 +132,8 @@ export default function MessagesPage() {
         const result = await loadMessages(selectedGroupId!, currentUserId!, null)
         scrollIntentRef.current = 'initial'
         setMessages(selectedGroupId!, result.messages, result.nextCursor)
-      } catch {
-        // silently fail — existing messages stay visible
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Failed to load messages')
       } finally {
         setHistoryLoading(false)
       }
@@ -267,8 +269,8 @@ export default function MessagesPage() {
     try {
       const result = await loadMessages(selectedGroupId, currentUserId, cursor)
       prependMessages(selectedGroupId, result.messages, result.nextCursor)
-    } catch {
-      // silently fail
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load older messages')
     } finally {
       setHistoryLoading(false)
     }
@@ -278,11 +280,14 @@ export default function MessagesPage() {
     const content = draft.trim()
     if (!content || !selectedChat) return
 
+    let sent = false
     if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
-      sendDirect({ receiverId: selectedChat.peerId, content })
+      sent = sendDirect({ receiverId: selectedChat.peerId, content })
     } else if (selectedChat.type === 'GROUP') {
-      sendGroup({ groupId: selectedChat.groupId, content })
+      sent = sendGroup({ groupId: selectedChat.groupId, content })
     }
+
+    if (!sent) return
 
     setDraft('')
     requestScrollToBottom()
@@ -294,26 +299,27 @@ export default function MessagesPage() {
     if (!file || !selectedChat) return
 
     setImageUploading(true)
-    setError(null)
 
     try {
       const uploaded = await uploadChatImage(file)
+      let sent = false
       if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
-        sendDirect({
+        sent = sendDirect({
           receiverId: selectedChat.peerId,
           content: uploaded.secureUrl,
           messageType: 'IMAGE',
         })
       } else if (selectedChat.type === 'GROUP') {
-        sendGroup({
+        sent = sendGroup({
           groupId: selectedChat.groupId,
           content: uploaded.secureUrl,
           messageType: 'IMAGE',
         })
       }
+      if (!sent) return
       requestScrollToBottom()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload image')
+      toast.error(err instanceof Error ? err.message : 'Failed to upload image')
     } finally {
       setImageUploading(false)
     }
@@ -326,26 +332,27 @@ export default function MessagesPage() {
 
     setVideoUploading(true)
     setVideoUploadProgress(0)
-    setError(null)
 
     try {
       const uploaded = await uploadChatVideo(file, setVideoUploadProgress)
+      let sent = false
       if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
-        sendDirect({
+        sent = sendDirect({
           receiverId: selectedChat.peerId,
           content: uploaded.secureUrl,
           messageType: 'VIDEO',
         })
       } else if (selectedChat.type === 'GROUP') {
-        sendGroup({
+        sent = sendGroup({
           groupId: selectedChat.groupId,
           content: uploaded.secureUrl,
           messageType: 'VIDEO',
         })
       }
+      if (!sent) return
       requestScrollToBottom()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to upload video')
+      toast.error(err instanceof Error ? err.message : 'Failed to upload video')
     } finally {
       setVideoUploading(false)
       setVideoUploadProgress(0)
@@ -355,19 +362,22 @@ export default function MessagesPage() {
   function handleStickerSelect(stickerId: string) {
     if (!stickerId || !selectedChat) return
 
+    let sent = false
     if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
-      sendDirect({
+      sent = sendDirect({
         receiverId: selectedChat.peerId,
         content: stickerId,
         messageType: 'STICKERS',
       })
     } else if (selectedChat.type === 'GROUP') {
-      sendGroup({
+      sent = sendGroup({
         groupId: selectedChat.groupId,
         content: stickerId,
         messageType: 'STICKERS',
       })
     }
+
+    if (!sent) return
     requestScrollToBottom()
   }
 

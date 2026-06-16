@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/stores/authStore'
 import type { ApiResponse } from '@/types/api'
+import { toast } from '@/utils/toast'
 import { DEVICE_ID_HEADER, getDeviceId } from '@/utils/deviceId'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
@@ -88,6 +89,7 @@ export async function apiClient<T>(
       }
 
       useAuthStore.getState().clearAccessToken()
+      toast.error('Session expired. Please log in again.')
     }
 
     throw new Error(
