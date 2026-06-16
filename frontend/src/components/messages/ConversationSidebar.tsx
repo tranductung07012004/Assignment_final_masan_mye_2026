@@ -57,10 +57,13 @@ export default function ConversationSidebar({
       sx={{
         width: 340,
         flexShrink: 0,
+        minHeight: 0,
+        alignSelf: 'stretch',
         borderRight: 1,
         borderColor: 'divider',
         display: 'flex',
         flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
       <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
@@ -110,7 +113,7 @@ export default function ConversationSidebar({
         </Button>
       </Box>
 
-      <List disablePadding sx={{ flex: 1, overflow: 'auto' }}>
+      <List disablePadding sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         {loading && chats.length === 0 ? (
           <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
             <CircularProgress size={28} />

@@ -1,5 +1,5 @@
 import { Box, Button, CircularProgress, Typography } from '@mui/material'
-import type { RefObject } from 'react'
+import { forwardRef } from 'react'
 import MessageBubble from '@/components/messages/MessageBubble'
 import type { ChatMessage } from '@/types/chat'
 
@@ -9,21 +9,18 @@ type MessageListProps = {
   historyLoading: boolean
   hasMoreHistory: boolean
   onLoadOlder: () => void
-  messagesEndRef: RefObject<HTMLDivElement | null>
 }
 
-export default function MessageList({
-  messages,
-  showSenderName,
-  historyLoading,
-  hasMoreHistory,
-  onLoadOlder,
-  messagesEndRef,
-}: MessageListProps) {
+const MessageList = forwardRef<HTMLDivElement, MessageListProps>(function MessageList(
+  { messages, showSenderName, historyLoading, hasMoreHistory, onLoadOlder },
+  ref,
+) {
   return (
     <Box
+      ref={ref}
       sx={{
         flex: 1,
+        minHeight: 0,
         overflow: 'auto',
         p: 3,
         display: 'flex',
@@ -57,7 +54,8 @@ export default function MessageList({
           <MessageBubble key={msg.id} message={msg} showSenderName={showSenderName} />
         ))
       )}
-      <div ref={messagesEndRef} />
     </Box>
   )
-}
+})
+
+export default MessageList

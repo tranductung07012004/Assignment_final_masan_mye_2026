@@ -1,4 +1,4 @@
-import { Divider } from '@mui/material'
+import { Box, Divider } from '@mui/material'
 import type { ChangeEvent, RefObject } from 'react'
 import ChatHeader from '@/components/messages/ChatHeader'
 import MessageComposer from '@/components/messages/MessageComposer'
@@ -12,7 +12,7 @@ type ChatPanelProps = {
   hasMoreHistory: boolean
   onLoadOlder: () => void
   onSettingsClick: () => void
-  messagesEndRef: RefObject<HTMLDivElement | null>
+  messageListRef: RefObject<HTMLDivElement | null>
   draft: string
   onDraftChange: (value: string) => void
   onSend: () => void
@@ -31,7 +31,7 @@ export default function ChatPanel({
   hasMoreHistory,
   onLoadOlder,
   onSettingsClick,
-  messagesEndRef,
+  messageListRef,
   draft,
   onDraftChange,
   onSend,
@@ -43,7 +43,15 @@ export default function ChatPanel({
   videoUploadProgress,
 }: ChatPanelProps) {
   return (
-    <>
+    <Box
+      sx={{
+        flex: 1,
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
       <ChatHeader chat={chat} onSettingsClick={onSettingsClick} />
 
       <MessageList
@@ -52,7 +60,7 @@ export default function ChatPanel({
         historyLoading={historyLoading}
         hasMoreHistory={hasMoreHistory}
         onLoadOlder={onLoadOlder}
-        messagesEndRef={messagesEndRef}
+        ref={messageListRef}
       />
 
       <Divider />
@@ -67,6 +75,6 @@ export default function ChatPanel({
         videoUploading={videoUploading}
         videoUploadProgress={videoUploadProgress}
       />
-    </>
+    </Box>
   )
 }
