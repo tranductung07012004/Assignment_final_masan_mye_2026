@@ -5,6 +5,8 @@ import com.app.chat.dto.UserSearchResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
+
 public interface FriendServiceInterface {
 
     Page<UserSearchResponse> searchUsers(Long currentUserId, String keyword, Pageable pageable);
@@ -16,4 +18,6 @@ public interface FriendServiceInterface {
     void acceptFriendRequest(Long currentUserId, Long requestId);
 
     void declineFriendRequest(Long currentUserId, Long requestId);
+
+    List<Long> getFriendIds(Long userId);
 }

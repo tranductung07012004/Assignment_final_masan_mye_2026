@@ -11,7 +11,7 @@ export type GroupMemberDto = {
   userId: number
   fullName: string
   avatarUrl: string | null
-  role: string
+  memberRole: string
 }
 
 export type GroupInfoDto = {
@@ -26,5 +26,10 @@ export async function createGroup(payload: CreateGroupPayload): Promise<GroupInf
     method: 'POST',
     body: payload,
   })
+  return response.data
+}
+
+export async function fetchGroupInfo(groupId: number): Promise<GroupInfoDto> {
+  const response = await apiClient<ApiResponse<GroupInfoDto>>(`/api/groups/${groupId}`)
   return response.data
 }

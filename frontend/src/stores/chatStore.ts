@@ -27,6 +27,7 @@ type ChatState = {
   nextMessageId: number
   unreadCounts: Record<number, number>
   lastMessageByGroupId: Record<number, LastMessageEntry>
+  presenceById: Record<number, boolean>
 
   selectChat: (groupId: number) => void
   getMessages: (groupId: number) => ChatMessage[]
@@ -40,6 +41,9 @@ type ChatState = {
   getAddableFriends: (groupId: number) => typeof mockFriends
   setLastMessages: (chats: ChatListItem[]) => void
   setUnreadCounts: (counts: Record<string, number>) => void
+  setMembers: (groupId: number, members: GroupMember[]) => void
+  setPresence: (userId: number, online: boolean) => void
+  mergePresence: (statuses: Record<string, boolean>) => void
   incrementUnread: (groupId: number) => void
   clearUnread: (groupId: number) => void
   setMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
@@ -70,6 +74,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   nextMessageId: INITIAL_NEXT_MESSAGE_ID,
   unreadCounts: {},
   lastMessageByGroupId: {},
+  presenceById: {},
 
   selectChat: (groupId) => set({ selectedGroupId: groupId }),
 
@@ -340,9 +345,27 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
       }
     }),
-
   updateLastMessage: (groupId, payload) =>
     set((state) => ({
       lastMessageByGroupId: { ...state.lastMessageByGroupId, [groupId]: payload },
     })),
+
+  setMembers: (groupId, members) =>
+    set((state) => ({
+      membersByGroupId: { ...state.membersByGroupId, [groupId]: members },
+    })),
+
+  setPresence: (userId, online) =>
+    set((state) => ({
+      presenceById: { ...state.presenceById, [userId]: online },
+    })),
+
+  mergePresence: (statuses) =>
+    set((state) => {
+      const updates: Record<number, boolean> = {}
+      for (const [k, v] of Object.entries(statuses)) {
+        updates[Number(k)] = v
+      }
+      return { presenceById: { ...state.presenceById, ...updates } }
+    }),
 }))

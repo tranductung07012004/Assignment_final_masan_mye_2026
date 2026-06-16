@@ -1,6 +1,7 @@
 import { Box } from '@mui/material'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent } from 'react'
 import { CHAT_LIST_PAGE_SIZE, listChats, loadMessages } from '@/api/chat'
+import { fetchGroupInfo } from '@/api/groups'
 import ChatEmptyState from '@/components/messages/ChatEmptyState'
 import ChatPanel from '@/components/messages/ChatPanel'
 import ConversationSidebar from '@/components/messages/ConversationSidebar'
@@ -28,8 +29,9 @@ export default function MessagesPage() {
   const lastMessageByGroupId = useChatStore((state) => state.lastMessageByGroupId)
   const setLastMessages = useChatStore((state) => state.setLastMessages)
 
+  const setMembers = useChatStore((state) => state.setMembers)
   const currentUserId = useProfileStore((state) => state.profile?.id ?? null)
-  const { sendDirect, sendGroup, sendMarkRead } = useWebSocket()
+  const { sendDirect, sendGroup, sendMarkRead, sendPresenceQuery } = useWebSocket()
 
   const markReadThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastMarkReadGroupRef = useRef<number | null>(null)
@@ -93,6 +95,31 @@ export default function MessagesPage() {
   useEffect(() => {
     fetchChats(appliedKeyword, page)
   }, [appliedKeyword, page, fetchChats])
+
+  useEffect(() => {
+    if (!selectedChat || selectedChat.type !== 'PRIVATE' || !selectedChat.peerId) return
+    sendPresenceQuery([selectedChat.peerId])
+  }, [selectedChat?.groupId])
+
+  useEffect(() => {
+    if (!settingsOpen || !selectedGroupId || !currentUserId) return
+
+    fetchGroupInfo(selectedGroupId).then((info) => {
+      const members = info.members.map((m) => ({
+        userId: m.userId,
+        fullName: m.fullName,
+        avatarUrl: m.avatarUrl,
+        role: (m.memberRole === 'OWNER' ? 'OWNER' : 'MEMBER') as 'OWNER' | 'MEMBER',
+        isSelf: m.userId === currentUserId,
+      }))
+      setMembers(selectedGroupId, members)
+      const memberIds = members.map((m) => m.userId)
+      if (memberIds.length > 0) sendPresenceQuery(memberIds)
+    }).catch((err) => {
+      console.error(err)
+      // silently fail — stale data stays visible
+    })
+  }, [settingsOpen, selectedGroupId])
 
   useEffect(() => {
     if (!selectedGroupId || !currentUserId) return

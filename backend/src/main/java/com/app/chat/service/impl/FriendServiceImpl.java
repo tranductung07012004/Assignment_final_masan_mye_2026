@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 
 @Service
 public class FriendServiceImpl implements FriendServiceInterface {
@@ -224,6 +225,11 @@ public class FriendServiceImpl implements FriendServiceInterface {
         request.setStatus(STATUS_REJECTED);
         request.setCooldownAt(now.plusDays(REJECT_COOLDOWN_DAYS));
         this.friendRequestRepository.save(request);
+    }
+
+    @Override
+    public List<Long> getFriendIds(Long userId) {
+        return this.friendRequestRepository.findAcceptedFriendIds(userId);
     }
 
     private FriendRequest getPendingRequestForReceiver(Long currentUserId, Long requestId) {

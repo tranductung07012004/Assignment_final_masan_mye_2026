@@ -9,6 +9,7 @@ import com.app.chat.dto.SendGroupMessageRequest;
 import com.app.chat.exception.ApplicationException;
 import com.app.chat.listener.RedisMessageListener;
 import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.service.FriendServiceInterface;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -25,6 +26,9 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,6 +48,7 @@ public class ChatHandler extends TextWebSocketHandler {
     private final ChatServiceInterface chatService;
     private final LocalSessionManagement localSessionManagement;
     private final WebSocketRedisService webSocketRedisService;
+    private final FriendServiceInterface friendService;
 
     public ChatHandler(
             InstanceIdentityConfig instanceIdentityConfig,
@@ -53,7 +58,8 @@ public class ChatHandler extends TextWebSocketHandler {
             ObjectMapper injectedObjectMapper,
             ChatServiceInterface injectedChatService,
             LocalSessionManagement injectedLocalSessionManagement,
-            WebSocketRedisService injectedWebSocketRedisService
+            WebSocketRedisService injectedWebSocketRedisService,
+            FriendServiceInterface injectedFriendService
     ) {
         // the injected properties
         this.serverId = instanceIdentityConfig.getServerId();
@@ -64,6 +70,7 @@ public class ChatHandler extends TextWebSocketHandler {
         this.chatService = injectedChatService;
         this.localSessionManagement = injectedLocalSessionManagement;
         this.webSocketRedisService = injectedWebSocketRedisService;
+        this.friendService = injectedFriendService;
     }
 
     @PostConstruct
@@ -96,6 +103,7 @@ public class ChatHandler extends TextWebSocketHandler {
         // cai nay la de SUBSCRIBE vao redis pub sub channel lan dau tien
         if (firstDeviceOfUserToConnect) {
             this.webSocketRedisService.markOnline(userId);
+            broadcastPresence(userId, "ONLINE");
         }
 
         try {
@@ -132,6 +140,10 @@ public class ChatHandler extends TextWebSocketHandler {
                     handleMarkRead(session, node);
                     return;
                 }
+                if ("PRESENCE_QUERY".equals(type)) {
+                    handlePresenceQuery(session, node);
+                    return;
+                }
             }
 
             if (node.has("receiverId")) {
@@ -158,6 +170,7 @@ public class ChatHandler extends TextWebSocketHandler {
         boolean fullyOffline = this.localSessionManagement.unregister(userId, deviceId, session);
         if (fullyOffline) {
             this.webSocketRedisService.markOffline(userId);
+            broadcastPresence(userId, "OFFLINE");
         }
     }
 
@@ -268,6 +281,51 @@ public class ChatHandler extends TextWebSocketHandler {
             publishToUser(userId, readSync);
         } catch (Exception e) {
             logger.error("Failed to handle MARK_READ for userId={}, groupId={}", userId, groupId, e);
+        }
+    }
+
+    private void broadcastPresence(String userId, String status) {
+        try {
+            List<Long> friendIds = this.friendService.getFriendIds(Long.parseLong(userId));
+            if (friendIds.isEmpty()) return;
+            String payload = objectMapper.writeValueAsString(Map.of(
+                    "type", "PRESENCE",
+                    "userId", Long.parseLong(userId),
+                    "status", status
+            ));
+            for (Long friendId : friendIds) {
+                this.publishToUser(String.valueOf(friendId), payload);
+            }
+        } catch (Exception e) {
+            logger.error("Failed to broadcast presence for userId={}", userId, e);
+        }
+    }
+
+    private void handlePresenceQuery(WebSocketSession session, JsonNode node) {
+        String self = (String) session.getAttributes().get("userId");
+        JsonNode userIdsNode = node.get("userIds");
+        if (userIdsNode == null || !userIdsNode.isArray()) return;
+
+        List<String> requestedIds = new ArrayList<>();
+        for (JsonNode id : userIdsNode) {
+            requestedIds.add(id.asText());
+        }
+
+        Set<String> online = this.webSocketRedisService.filterOnline(requestedIds);
+
+        Map<String, Boolean> statuses = new HashMap<>();
+        for (String id : requestedIds) {
+            statuses.put(id, online.contains(id));
+        }
+
+        try {
+            String response = objectMapper.writeValueAsString(Map.of(
+                    "type", "PRESENCE_SNAPSHOT",
+                    "statuses", statuses
+            ));
+            publishToUser(self, response);
+        } catch (Exception e) {
+            logger.error("Failed to send PRESENCE_SNAPSHOT to userId={}", self, e);
         }
     }
 
