@@ -416,6 +416,24 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .build();
     }
 
+    @Override
+    public Map<Long, Integer> getUnreadCounts(Long userId) {
+        List<Object[]> rows = this.chatGroupMemberRepository.findUnreadCountsForUser(userId);
+        Map<Long, Integer> result = new java.util.HashMap<>();
+        for (Object[] row : rows) {
+            Long groupId = ((Number) row[0]).longValue();
+            int count = ((Number) row[1]).intValue();
+            result.put(groupId, count);
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public void markRead(Long userId, Long groupId, Long lastReadMsgId) {
+        this.chatGroupMemberRepository.advanceWatermark(groupId, userId, lastReadMsgId);
+    }
+
     private ResolvedMessageDto resolveOutgoingMessage(
             Long senderId,
             String messageType,

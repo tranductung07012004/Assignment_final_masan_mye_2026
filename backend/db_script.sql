@@ -69,12 +69,19 @@ CREATE TABLE chat_group_members (
 
     joined_at       TIMESTAMPTZ(0) NOT NULL DEFAULT NOW(),
 
+    last_read_msg_id BIGINT,
+
     CONSTRAINT uq_chat_group_members UNIQUE (group_id, member_id),
 
     CONSTRAINT chk_chat_group_members_role CHECK (member_role IN ('OWNER', 'MEMBER'))
 );
 
 CREATE INDEX idx_chat_group_members_group_id_joined_at ON chat_group_members(group_id, member_id, joined_at);
+
+-- Migration seed: mark all existing members as having read everything up to now
+-- so they don't see the entire message history as unread on feature launch.
+-- UPDATE chat_group_members cgm
+-- SET last_read_msg_id = (SELECT MAX(cm.id) FROM chat_messages cm WHERE cm.group_id = cgm.group_id);
 
 -- =========================================
 -- CHAT MESSAGES

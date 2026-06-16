@@ -126,3 +126,6 @@ INSERT INTO chat_messages (group_id, sender_id, content, message_type, metadata,
     (23, 3, 'Design Squad is live!',               'TEXT', NULL, '2026-06-09 15:10:06+07', '2026-06-09 15:10:06+07', NULL),
     (23, 6, 'Frank joined, hello everyone.',       'TEXT', NULL, '2026-06-09 15:10:19+07', '2026-06-09 15:10:19+07', NULL),
     (23, 7, 'Grace here, nice to meet you all.',   'TEXT', NULL, '2026-06-09 15:10:33+07', '2026-06-09 15:10:33+07', NULL);
+
+UPDATE chat_group_members cgm
+SET last_read_msg_id = (SELECT MAX(cm.id) FROM chat_messages cm WHERE cm.group_id = cgm.group_id);

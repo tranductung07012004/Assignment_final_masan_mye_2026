@@ -36,6 +36,9 @@ public class ChatGroupMember {
     @Column(name = "joined_at")
     private OffsetDateTime joinedAt;
 
+    @Column(name = "last_read_msg_id")
+    private Long lastReadMsgId;
+
     @PrePersist
     protected void onCreate() {
         this.joinedAt = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);

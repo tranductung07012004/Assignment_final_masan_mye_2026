@@ -24,6 +24,7 @@ type ChatState = {
   selectedGroupId: number | null
   nextGroupId: number
   nextMessageId: number
+  unreadCounts: Record<number, number>
 
   selectChat: (groupId: number) => void
   getMessages: (groupId: number) => ChatMessage[]
@@ -35,6 +36,9 @@ type ChatState = {
   removeMemberFromGroup: (groupId: number, memberId: number) => void
   leaveGroup: (groupId: number) => void
   getAddableFriends: (groupId: number) => typeof mockFriends
+  setUnreadCounts: (counts: Record<string, number>) => void
+  incrementUnread: (groupId: number) => void
+  clearUnread: (groupId: number) => void
   setMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
   prependMessages: (groupId: number, messages: ChatMessage[], nextCursor: number | null) => void
   appendMessage: (message: ChatMessage) => void
@@ -60,6 +64,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   selectedGroupId: null,
   nextGroupId: INITIAL_NEXT_GROUP_ID,
   nextMessageId: INITIAL_NEXT_MESSAGE_ID,
+  unreadCounts: {},
 
   selectChat: (groupId) => set({ selectedGroupId: groupId }),
 
@@ -253,6 +258,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
       selectedGroupId: nextSelected,
     })
   },
+
+  setUnreadCounts: (counts) =>
+    set(() => {
+      const parsed: Record<number, number> = {}
+      for (const [k, v] of Object.entries(counts)) {
+        parsed[Number(k)] = v
+      }
+      return { unreadCounts: parsed }
+    }),
+
+  incrementUnread: (groupId) =>
+    set((state) => ({
+      unreadCounts: {
+        ...state.unreadCounts,
+        [groupId]: (state.unreadCounts[groupId] ?? 0) + 1,
+      },
+    })),
+
+  clearUnread: (groupId) =>
+    set((state) => ({
+      unreadCounts: { ...state.unreadCounts, [groupId]: 0 },
+    })),
 
   getAddableFriends: (groupId) => {
     const members = get().membersByGroupId[groupId] ?? []

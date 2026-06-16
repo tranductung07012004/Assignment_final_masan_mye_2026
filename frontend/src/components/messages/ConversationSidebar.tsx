@@ -24,6 +24,7 @@ type ConversationSidebarProps = {
   loading: boolean
   error: string | null
   selectedGroupId: number | null
+  unreadCounts: Record<number, number>
   onChatSelect: (chat: ChatListItem) => void
   onRetry: () => void
   page: number
@@ -41,6 +42,7 @@ export default function ConversationSidebar({
   loading,
   error,
   selectedGroupId,
+  unreadCounts,
   onChatSelect,
   onRetry,
   page,
@@ -134,6 +136,7 @@ export default function ConversationSidebar({
               key={chat.groupId}
               chat={chat}
               selected={chat.groupId === selectedGroupId}
+              unreadCount={unreadCounts[chat.groupId] ?? 0}
               onClick={() => onChatSelect(chat)}
             />
           ))
