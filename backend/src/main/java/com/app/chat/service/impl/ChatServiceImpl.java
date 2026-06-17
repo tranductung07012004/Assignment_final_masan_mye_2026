@@ -122,9 +122,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .id(item.getId())
                 .fullName(item.getFullName())
                 .avatarUrl(item.getAvatarUrl())
-                .createdAt(item.getCreatedAt() == null
-                        ? null
-                        : item.getCreatedAt().atOffset(ZoneOffset.UTC))
+                .createdAt(item.getCreatedAt().atOffset(ZoneOffset.UTC))
                 .build()
         );
     }
