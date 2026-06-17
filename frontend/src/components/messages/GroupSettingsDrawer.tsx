@@ -7,7 +7,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   Divider,
   Drawer,
   IconButton,
@@ -15,17 +14,14 @@ import {
   ListItem,
   ListItemAvatar,
   ListItemText,
-  Menu,
-  MenuItem,
   Typography,
 } from '@mui/material'
 import { useEffect, useMemo, useState } from 'react'
-import { listFriends } from '@/api/friends'
-import { addGroupMember, fetchGroupInfo, kickGroupMember, leaveGroupApi } from '@/api/groups'
+import { fetchGroupInfo, kickGroupMember, leaveGroupApi } from '@/api/groups'
+import AddGroupMemberPanel from '@/components/messages/AddGroupMemberPanel'
+import LeaveGroupDialog from '@/components/messages/LeaveGroupDialog'
 import { useChatStore } from '@/stores/chatStore'
 import { MAX_GROUP_MEMBERS, type GroupMember } from '@/types/chat'
-import type { Friend } from '@/types/friend'
-import LeaveGroupDialog from '@/components/messages/LeaveGroupDialog'
 import { toast } from '@/utils/toast'
 
 const EMPTY_MEMBERS: GroupMember[] = []
@@ -49,58 +45,37 @@ export default function GroupSettingsDrawer({
   const leaveGroup = useChatStore((state) => state.leaveGroup)
   const presenceById = useChatStore((state) => state.presenceById)
 
-  const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null)
+  const [addPanelOpen, setAddPanelOpen] = useState(false)
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
-  const [friendsList, setFriendsList] = useState<Friend[]>([])
   const [actionLoading, setActionLoading] = useState(false)
 
   const isOwner = members.some((m) => m.isSelf && m.role === 'OWNER')
   const memberIds = useMemo(() => new Set(members.map((m) => m.userId)), [members])
-  const addableFriends = useMemo(
-    () => friendsList.filter((f) => !memberIds.has(f.id)),
-    [friendsList, memberIds],
-  )
 
   const isFull = members.length >= MAX_GROUP_MEMBERS
-  const canAdd = isOwner && !isFull && addableFriends.length > 0
+  const canAdd = isOwner && !isFull
+  const slotsRemaining = MAX_GROUP_MEMBERS - members.length
 
   useEffect(() => {
-    if (!open) return
-    listFriends({ size: 100 }).then((result) => setFriendsList(result.friends)).catch(() => {})
+    if (!open) setAddPanelOpen(false)
   }, [open])
 
-  async function handleAddMember(friendId: number) {
-    setAddMenuAnchor(null)
-    setActionLoading(true)
-    try {
-      await addGroupMember(groupId, friendId)
-      const info = await fetchGroupInfo(groupId)
-      setMembers(groupId, info.members.map((m) => ({
-        userId: m.userId,
-        fullName: m.fullName,
-        avatarUrl: m.avatarUrl,
-        role: m.memberRole as 'OWNER' | 'MEMBER',
-        isSelf: members.find((cur) => cur.userId === m.userId)?.isSelf ?? false,
-      })))
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to add member')
-    } finally {
-      setActionLoading(false)
-    }
+  async function refreshMembers() {
+    const info = await fetchGroupInfo(groupId)
+    setMembers(groupId, info.members.map((m) => ({
+      userId: m.userId,
+      fullName: m.fullName,
+      avatarUrl: m.avatarUrl,
+      role: m.memberRole as 'OWNER' | 'MEMBER',
+      isSelf: members.find((cur) => cur.userId === m.userId)?.isSelf ?? false,
+    })))
   }
 
   async function handleRemoveMember(memberId: number) {
     setActionLoading(true)
     try {
       await kickGroupMember(groupId, memberId)
-      const info = await fetchGroupInfo(groupId)
-      setMembers(groupId, info.members.map((m) => ({
-        userId: m.userId,
-        fullName: m.fullName,
-        avatarUrl: m.avatarUrl,
-        role: m.memberRole as 'OWNER' | 'MEMBER',
-        isSelf: members.find((cur) => cur.userId === m.userId)?.isSelf ?? false,
-      })))
+      await refreshMembers()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to remove member')
     } finally {
@@ -167,9 +142,9 @@ export default function GroupSettingsDrawer({
               {canAdd && (
                 <Button
                   size="small"
-                  startIcon={actionLoading ? <CircularProgress size={14} /> : <AddIcon />}
+                  startIcon={<AddIcon />}
                   disabled={actionLoading}
-                  onClick={(e) => setAddMenuAnchor(e.currentTarget)}
+                  onClick={() => setAddPanelOpen(true)}
                 >
                   Add
                 </Button>
@@ -242,25 +217,15 @@ export default function GroupSettingsDrawer({
         </Box>
       </Drawer>
 
-      <Menu
-        anchorEl={addMenuAnchor}
-        open={Boolean(addMenuAnchor)}
-        onClose={() => setAddMenuAnchor(null)}
-      >
-        {addableFriends.map((friend) => (
-          <MenuItem
-            key={friend.id}
-            onClick={() => handleAddMember(friend.id)}
-          >
-            <Avatar
-              src={friend.avatarUrl ?? undefined}
-              alt={friend.fullName}
-              sx={{ width: 28, height: 28, mr: 1.5 }}
-            />
-            {friend.fullName}
-          </MenuItem>
-        ))}
-      </Menu>
+      <AddGroupMemberPanel
+        open={addPanelOpen}
+        groupId={groupId}
+        groupTitle={groupTitle}
+        memberIds={memberIds}
+        slotsRemaining={slotsRemaining}
+        onClose={() => setAddPanelOpen(false)}
+        onMemberAdded={refreshMembers}
+      />
 
       <LeaveGroupDialog
         open={leaveDialogOpen}
