@@ -7,6 +7,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Divider,
   Drawer,
   IconButton,
@@ -18,11 +19,14 @@ import {
   MenuItem,
   Typography,
 } from '@mui/material'
-import { useMemo, useState } from 'react'
-import { mockFriends } from '@/mock/friends'
+import { useEffect, useMemo, useState } from 'react'
+import { listFriends } from '@/api/friends'
+import { addGroupMember, fetchGroupInfo, kickGroupMember, leaveGroupApi } from '@/api/groups'
 import { useChatStore } from '@/stores/chatStore'
 import { MAX_GROUP_MEMBERS, type GroupMember } from '@/types/chat'
+import type { Friend } from '@/types/friend'
 import LeaveGroupDialog from '@/components/messages/LeaveGroupDialog'
+import { toast } from '@/utils/toast'
 
 const EMPTY_MEMBERS: GroupMember[] = []
 
@@ -41,28 +45,78 @@ export default function GroupSettingsDrawer({
 }: GroupSettingsDrawerProps) {
   const members =
     useChatStore((state) => state.membersByGroupId[groupId]) ?? EMPTY_MEMBERS
-  const addMemberToGroup = useChatStore((state) => state.addMemberToGroup)
-  const removeMemberFromGroup = useChatStore((state) => state.removeMemberFromGroup)
+  const setMembers = useChatStore((state) => state.setMembers)
   const leaveGroup = useChatStore((state) => state.leaveGroup)
   const presenceById = useChatStore((state) => state.presenceById)
 
   const [addMenuAnchor, setAddMenuAnchor] = useState<null | HTMLElement>(null)
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false)
+  const [friendsList, setFriendsList] = useState<Friend[]>([])
+  const [actionLoading, setActionLoading] = useState(false)
 
   const isOwner = members.some((m) => m.isSelf && m.role === 'OWNER')
   const memberIds = useMemo(() => new Set(members.map((m) => m.userId)), [members])
   const addableFriends = useMemo(
-    () => mockFriends.filter((f) => !memberIds.has(f.id)),
-    [memberIds],
+    () => friendsList.filter((f) => !memberIds.has(f.id)),
+    [friendsList, memberIds],
   )
 
   const isFull = members.length >= MAX_GROUP_MEMBERS
   const canAdd = isOwner && !isFull && addableFriends.length > 0
 
-  function handleLeaveConfirm() {
-    leaveGroup(groupId)
+  useEffect(() => {
+    if (!open) return
+    listFriends({ size: 100 }).then((result) => setFriendsList(result.friends)).catch(() => {})
+  }, [open])
+
+  async function handleAddMember(friendId: number) {
+    setAddMenuAnchor(null)
+    setActionLoading(true)
+    try {
+      await addGroupMember(groupId, friendId)
+      const info = await fetchGroupInfo(groupId)
+      setMembers(groupId, info.members.map((m) => ({
+        userId: m.userId,
+        fullName: m.fullName,
+        avatarUrl: m.avatarUrl,
+        role: m.memberRole as 'OWNER' | 'MEMBER',
+        isSelf: members.find((cur) => cur.userId === m.userId)?.isSelf ?? false,
+      })))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to add member')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleRemoveMember(memberId: number) {
+    setActionLoading(true)
+    try {
+      await kickGroupMember(groupId, memberId)
+      const info = await fetchGroupInfo(groupId)
+      setMembers(groupId, info.members.map((m) => ({
+        userId: m.userId,
+        fullName: m.fullName,
+        avatarUrl: m.avatarUrl,
+        role: m.memberRole as 'OWNER' | 'MEMBER',
+        isSelf: members.find((cur) => cur.userId === m.userId)?.isSelf ?? false,
+      })))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to remove member')
+    } finally {
+      setActionLoading(false)
+    }
+  }
+
+  async function handleLeaveConfirm() {
     setLeaveDialogOpen(false)
-    onClose()
+    try {
+      await leaveGroupApi(groupId)
+      leaveGroup(groupId)
+      onClose()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to leave group')
+    }
   }
 
   return (
@@ -113,7 +167,8 @@ export default function GroupSettingsDrawer({
               {canAdd && (
                 <Button
                   size="small"
-                  startIcon={<AddIcon />}
+                  startIcon={actionLoading ? <CircularProgress size={14} /> : <AddIcon />}
+                  disabled={actionLoading}
                   onClick={(e) => setAddMenuAnchor(e.currentTarget)}
                 >
                   Add
@@ -131,7 +186,8 @@ export default function GroupSettingsDrawer({
                       <Button
                         size="small"
                         color="error"
-                        onClick={() => removeMemberFromGroup(groupId, member.userId)}
+                        disabled={actionLoading}
+                        onClick={() => handleRemoveMember(member.userId)}
                       >
                         Remove
                       </Button>
@@ -194,10 +250,7 @@ export default function GroupSettingsDrawer({
         {addableFriends.map((friend) => (
           <MenuItem
             key={friend.id}
-            onClick={() => {
-              addMemberToGroup(groupId, friend.id)
-              setAddMenuAnchor(null)
-            }}
+            onClick={() => handleAddMember(friend.id)}
           >
             <Avatar
               src={friend.avatarUrl ?? undefined}

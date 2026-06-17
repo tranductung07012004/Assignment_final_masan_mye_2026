@@ -35,10 +35,7 @@ type ChatState = {
   isCurrentUserOwner: (groupId: number) => boolean
   createGroup: (input: CreateGroupInput) => number
   createPrivateChat: (friendId: number) => number
-  addMemberToGroup: (groupId: number, friendId: number) => void
-  removeMemberFromGroup: (groupId: number, memberId: number) => void
   leaveGroup: (groupId: number) => void
-  getAddableFriends: (groupId: number) => typeof mockFriends
   setLastMessages: (chats: ChatListItem[]) => void
   setUnreadCounts: (counts: Record<string, number>) => void
   setMembers: (groupId: number, members: GroupMember[]) => void
@@ -202,51 +199,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     return groupId
   },
 
-  addMemberToGroup: (groupId, friendId) => {
-    const state = get()
-    const members = state.membersByGroupId[groupId]
-    if (!members) return
-
-    if (!state.isCurrentUserOwner(groupId)) return
-    if (members.length >= MAX_GROUP_MEMBERS) return
-    if (members.some((m) => m.userId === friendId)) return
-
-    const friend = mockFriends.find((f) => f.id === friendId)
-    if (!friend) return
-
-    set({
-      membersByGroupId: {
-        ...state.membersByGroupId,
-        [groupId]: [
-          ...members,
-          {
-            userId: friend.id,
-            fullName: friend.fullName,
-            avatarUrl: friend.avatarUrl,
-            role: 'MEMBER',
-            isSelf: false,
-          },
-        ],
-      },
-    })
-  },
-
-  removeMemberFromGroup: (groupId, memberId) => {
-    const state = get()
-    const members = state.membersByGroupId[groupId]
-    if (!members) return
-
-    if (!state.isCurrentUserOwner(groupId)) return
-    if (memberId === CURRENT_USER_ID) return
-
-    set({
-      membersByGroupId: {
-        ...state.membersByGroupId,
-        [groupId]: members.filter((m) => m.userId !== memberId),
-      },
-    })
-  },
-
   leaveGroup: (groupId) => {
     const state = get()
     const chat = state.chats.find((c) => c.groupId === groupId)
@@ -307,12 +259,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set((state) => ({
       unreadCounts: { ...state.unreadCounts, [groupId]: 0 },
     })),
-
-  getAddableFriends: (groupId) => {
-    const members = get().membersByGroupId[groupId] ?? []
-    const memberIds = new Set(members.map((m) => m.userId))
-    return mockFriends.filter((f) => !memberIds.has(f.id))
-  },
 
   setMessages: (groupId, messages, nextCursor) =>
     set((state) => ({
