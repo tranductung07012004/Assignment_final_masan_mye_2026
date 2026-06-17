@@ -1,6 +1,6 @@
 package com.app.chat.dto;
 
-import java.time.OffsetDateTime;
+import java.time.Instant;
 
 public interface IncomingFriendRequestProjection {
     Long getId();
@@ -11,5 +11,5 @@ public interface IncomingFriendRequestProjection {
 
     String getAvatarUrl();
 
-    OffsetDateTime getSentAt();
+    Instant getSentAt();
 }

@@ -33,3 +33,22 @@ export async function fetchGroupInfo(groupId: number): Promise<GroupInfoDto> {
   const response = await apiClient<ApiResponse<GroupInfoDto>>(`/api/groups/${groupId}`)
   return response.data
 }
+
+export async function addGroupMember(groupId: number, memberId: number): Promise<void> {
+  await apiClient<ApiResponse<null>>(`/api/groups/${groupId}/members`, {
+    method: 'POST',
+    body: { memberId },
+  })
+}
+
+export async function kickGroupMember(groupId: number, memberId: number): Promise<void> {
+  await apiClient<ApiResponse<null>>(`/api/groups/${groupId}/members/${memberId}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function leaveGroupApi(groupId: number): Promise<void> {
+  await apiClient<ApiResponse<null>>(`/api/groups/${groupId}/leave`, {
+    method: 'DELETE',
+  })
+}

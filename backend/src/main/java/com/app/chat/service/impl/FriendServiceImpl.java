@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -93,7 +94,7 @@ public class FriendServiceImpl implements FriendServiceInterface {
                                 .fullName(item.getFullName())
                                 .avatarUrl(item.getAvatarUrl())
                                 .build())
-                        .sentAt(item.getSentAt())
+                        .sentAt(item.getSentAt().atOffset(ZoneOffset.UTC))
                         .build()
                 );
     }
