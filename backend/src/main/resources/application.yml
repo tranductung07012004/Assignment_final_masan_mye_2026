@@ -24,9 +24,9 @@ spring:
 
     lettuce:
       pool:
-        max-active: 16
-        max-idle: 8
-        min-idle: 2
+        max-active: 32
+        max-idle: 16
+        min-idle: 8
 
   cache:
     type: redis
