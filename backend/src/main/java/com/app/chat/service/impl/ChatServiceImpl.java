@@ -42,7 +42,7 @@ import java.util.Set;
 
 @Service
 public class ChatServiceImpl implements ChatServiceInterface {
-    private static final int GROUP_MEMBER_LIMIT = 10;
+    private static final int GROUP_MEMBER_LIMIT = 10000;
     private static final int GROUP_MEMBER_MINIMUM = 3;
 
     private static final Logger logger = LoggerFactory.getLogger(ChatServiceImpl.class);

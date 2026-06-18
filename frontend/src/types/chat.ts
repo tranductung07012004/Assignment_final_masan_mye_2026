@@ -2,7 +2,7 @@ export type ChatType = 'PRIVATE' | 'GROUP'
 
 export type MemberRole = 'OWNER' | 'MEMBER'
 
-export const MAX_GROUP_MEMBERS = 10
+export const MAX_GROUP_MEMBERS = 10000
 export const MIN_GROUP_MEMBERS = 3
 export const MIN_FRIENDS_TO_SELECT = MIN_GROUP_MEMBERS - 1
 export const MAX_FRIENDS_TO_SELECT = MAX_GROUP_MEMBERS - 1

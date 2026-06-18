@@ -24,7 +24,7 @@ public enum ErrorCode {
     NOT_A_GROUP_MEMBER("You are not a member of this group", 403),
     NOT_GROUP_OWNER("Only the group owner can perform this action", 403),
     GROUP_MEMBER_ALREADY_EXISTS("User is already a member of this group", 409),
-    GROUP_MEMBER_LIMIT_EXCEEDED("Group has reached the maximum member limit of 10", 400),
+    GROUP_MEMBER_LIMIT_EXCEEDED("Group has reached the maximum member limit of 10000", 400),
     GROUP_TITLE_REQUIRED("Group title is required", 400),
     GROUP_MEMBER_MINIMUM_NOT_MET("Group must have at least 3 members including the owner", 400),
     THIS_API_IS_NOT_SUPPORTED_FOR_OWNER_KICK_OWNER("Owner cannot kick owner in this API", 400),
