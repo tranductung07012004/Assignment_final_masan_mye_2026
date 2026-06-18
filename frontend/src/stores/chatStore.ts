@@ -14,7 +14,7 @@ import type {
   GroupMember,
   LastMessageEntry,
 } from '@/types/chat'
-import { CURRENT_USER_ID, MAX_GROUP_MEMBERS } from '@/types/chat'
+import { CURRENT_USER_ID } from '@/types/chat'
 import { create } from 'zustand'
 
 type ChatState = {
