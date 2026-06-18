@@ -28,11 +28,6 @@ public class RedisConfig {
         return container;
     }
 
-    // Fix 4: cache hot path gửi tin.
-    //
-    // KHÔNG dùng GenericJackson2JsonRedisSerializer: nó bật default-typing nên với List/Long sẽ GHI plain JSON
-    // (vd ["8","9",...]) nhưng ĐỌC lại đòi type-wrapper [typeId, value] → ném "Could not resolve type id '8'".
-    // Thay vào đó mỗi cache có serializer TYPED cố định (đối xứng ghi/đọc, không cần type info trong payload).
     @Bean
     public RedisCacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         ObjectMapper mapper = new ObjectMapper();
@@ -45,7 +40,6 @@ public class RedisConfig {
         Jackson2JsonRedisSerializer<Object> userSerializer =
                 new Jackson2JsonRedisSerializer<>(mapper, mapper.getTypeFactory().constructType(UserSummaryDto.class));
 
-        // base: TTL set riêng từng cache bên dưới; disableCachingNullValues khớp spring.cache.redis.cache-null-values=false.
         RedisCacheConfiguration base = RedisCacheConfiguration.defaultCacheConfig()
                 .disableCachingNullValues();
 

@@ -15,8 +15,6 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.List;
 
 @Configuration
-// @EnableMethodSecurity(prePostEnabled = true), prePostEnabled = true is default for annotation @EnableMethodSecurity,
-// and this method @EnableMethodSecurity is used for authorization, in this project we temporarily do not need authorization
 public class SecurityConfig {
     private final HeaderAuthenticationFilter headerAuthenticationFilter;
 
@@ -28,8 +26,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http.cors(cors -> {})
-                .csrf(AbstractHttpConfigurer::disable) // normal when using Authorization header with JWT token, because hacker could not add header in the middle (man in the middle attack)
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // best practice for Spring
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth ->
                         auth.requestMatchers(
                                 "/api/auth/**",

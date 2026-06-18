@@ -18,7 +18,6 @@ public enum ErrorCode {
     VIDEO_URL_IS_TOO_LONG("Video URL must not exceed 2048 characters", 400),
     PRIVATE_CHAT_NOT_FOUND("Private chat between these users does not exist", 404),
 
-    // Group
     GROUP_NOT_FOUND("Group could not be found", 404),
     GROUP_MEMBER_NOT_FOUND("Member could not be found in this group", 404),
     NOT_A_GROUP_MEMBER("You are not a member of this group", 403),
@@ -28,7 +27,6 @@ public enum ErrorCode {
     GROUP_TITLE_REQUIRED("Group title is required", 400),
     GROUP_MEMBER_MINIMUM_NOT_MET("Group must have at least 3 members including the owner", 400),
     THIS_API_IS_NOT_SUPPORTED_FOR_OWNER_KICK_OWNER("Owner cannot kick owner in this API", 400),
-    // Auth
     ACCESS_TOKEN_NOT_FOUND("Request does not have access token in header", 401),
     INVALID_ACCESS_TOKEN("Access token is invalid", 401),
     EMAIL_ALREADY_REGISTERED("Email already registered", 409),
@@ -42,7 +40,6 @@ public enum ErrorCode {
     OLD_PASSWORD_REQUIRED("Old password is required when changing password", 400),
     PASSWORD_CONFIRMATION_MISMATCH("New password and confirm password do not match", 400),
 
-    // Friend
     CANNOT_ADD_SELF("Cannot add yourself as a friend", 400),
     FRIEND_REQUEST_ALREADY_SENT("You have already sent a friend request to this user", 409),
     FRIEND_REQUEST_ALREADY_RECEIVED("This user has already sent you a friend request", 409),

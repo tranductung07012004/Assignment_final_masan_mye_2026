@@ -105,9 +105,6 @@ public interface ChatGroupMemberRepository extends JpaRepository<ChatGroupMember
             ) c
             WHERE cgm.member_id = :userId
             """, nativeQuery = true)
-        // COALESCE co nghia la neu left value null thi lay right value
-        // cross join lateral nghia la voi moi row o cau query ngoai, thuc hien cau subquery ben trong
-        // lateral co nghia la cho phep cau subquery lay thong tin tu cau query ben ngoai
     List<Object[]> findUnreadCountsForUser(@Param("userId") Long userId);
 
     @Modifying

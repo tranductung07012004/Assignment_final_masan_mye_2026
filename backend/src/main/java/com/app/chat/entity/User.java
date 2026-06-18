@@ -22,12 +22,6 @@ public class User {
     private Long id;
 
     @Column(name = "full_name")
-    // nullable = false ở đây không phải là validation runtime chính thức
-    // nó chủ yếu ảnh hưởng đến schema generation (DDL) của hibernate,
-    // cái mà trong application.yml là jpa.hibernate.ddl-auto
-    // tức là, ví dụ khi ta để @Column(nullable = false) String email
-    // Hibernate sẽ generate email varchar NOT NULL trong database
-    // Chứ còn khi runtime insert/update, hibernate sẽ ko check null, vẫn gửi SQL đến database
     private String fullName;
 
     @Column(name = "email", nullable = false)
@@ -47,7 +41,6 @@ public class User {
 
     @PrePersist
     protected void onCreate() {
-        // Cắt bỏ, không phải làm tròn
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
         this.createdAt = now;
         this.updatedAt = now;
@@ -55,7 +48,6 @@ public class User {
 
     @PreUpdate
     protected void onUpdate() {
-        // Cắt bỏ, không phải làm tròn
         this.updatedAt = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
     }
 }

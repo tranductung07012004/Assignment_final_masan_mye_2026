@@ -40,7 +40,6 @@ public class ChatGroup {
 
     @PrePersist
     protected void onCreate() {
-        // Cắt bỏ, không phải làm tròn
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
         this.createdAt = now;
         this.updatedAt = now;
@@ -48,7 +47,6 @@ public class ChatGroup {
 
     @PreUpdate
     protected void onUpdate() {
-        // Cắt bỏ, không phải làm tròn
         this.updatedAt = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
     }
 }

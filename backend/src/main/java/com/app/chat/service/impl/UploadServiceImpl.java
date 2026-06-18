@@ -38,7 +38,7 @@ public class UploadServiceImpl implements UploadServiceInterface {
         String signature = cloudinary.apiSignRequest(
                 paramsToSign,
                 cloudinary.config.apiSecret,
-                1 // signatureVersion: 1 đại diện cho v1 (SHA-1), 2 đại diện cho v2 (SHA-256)
+                1
         );
 
         String uploadPath = "VIDEO".equals(normalizedType) ? "video/upload" : "image/upload";

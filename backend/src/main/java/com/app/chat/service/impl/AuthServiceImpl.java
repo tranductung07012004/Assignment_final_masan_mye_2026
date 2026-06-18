@@ -144,7 +144,6 @@ public class AuthServiceImpl implements AuthServiceInterface {
                                 oldToken.getUserId()
                 ));
 
-        // Delete old token before creating a new one => token rotation to prevent replay attack
         this.refreshTokenRepository.deleteByHashToken(hashInputRefreshTokenInCookie);
 
         String newRefreshTokenString = this.jwtUtil.generateRefreshToken(oldToken.getUserId().toString());

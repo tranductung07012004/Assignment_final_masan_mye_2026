@@ -45,7 +45,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     public ResponseEntity<?> handleAccessDeniedException(AccessDeniedException ex) {
         return ResponseEntity
-                .status(403)  // Forbidden
+                .status(403)
                 .body(new ApiResponse<>("You do not have permission to access this resource", null));
     }
 

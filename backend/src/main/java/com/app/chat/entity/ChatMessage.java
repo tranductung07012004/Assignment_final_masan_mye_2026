@@ -35,10 +35,6 @@ public class ChatMessage {
     @Column(name = "message_type")
     private String messageType;
 
-    /**
-     * Raw JSON string mapped to PostgreSQL JSONB column.
-     * Use a utility (e.g. JsonUtils) to parse/serialize as needed.
-     */
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata")
     private String metadata;
@@ -54,7 +50,6 @@ public class ChatMessage {
 
     @PrePersist
     protected void onCreate() {
-        // Cắt bỏ, không phải làm tròn
         OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
         this.createdAt = now;
         this.editedAt = now;
@@ -62,7 +57,6 @@ public class ChatMessage {
 
     @PreUpdate
     protected void onUpdate() {
-        // Cắt bỏ, không phải làm tròn
         this.editedAt = OffsetDateTime.now().truncatedTo(ChronoUnit.SECONDS);
     }
 }

@@ -45,7 +45,7 @@ public class ChatHandler extends TextWebSocketHandler {
     private final StringRedisTemplate redisTemplate;
     private final RedisMessageListenerContainer listenerContainer;
     private final RedisMessageListener redisMessageListener;
-    private final ObjectMapper objectMapper; //  co san khi su dung starter-web (trong jackson)
+    private final ObjectMapper objectMapper;
     private final ChatServiceInterface chatService;
     private final LocalSessionManagement localSessionManagement;
     private final WebSocketRedisService webSocketRedisService;
@@ -62,7 +62,6 @@ public class ChatHandler extends TextWebSocketHandler {
             WebSocketRedisService injectedWebSocketRedisService,
             FriendServiceInterface injectedFriendService
     ) {
-        // the injected properties
         this.serverId = instanceIdentityConfig.getServerId();
         this.redisTemplate = injectedRedisTemplate;
         this.listenerContainer = injectedListenerContainer;
@@ -88,7 +87,6 @@ public class ChatHandler extends TextWebSocketHandler {
 
         ConcurrentHashMap<String, WebSocketSession> deviceSessions = localSessionManagement.getDeviceSessions(userId);
 
-        // Cai nay de xoa cai old session
         if (deviceSessions != null) {
             WebSocketSession existingSession = deviceSessions.get(deviceId);
             if (existingSession != null && existingSession.isOpen() && !existingSession.getId().equals(session.getId())) {
@@ -100,15 +98,9 @@ public class ChatHandler extends TextWebSocketHandler {
             }
         }
 
-        // Boc session bang ConcurrentWebSocketSessionDecorator de SERIALIZE moi lan sendMessage tren cung mot session.
-        // Tomcat RemoteEndpoint KHONG cho phep 2 luong gui dong thoi -> neu khong boc se gap loi
-        // IllegalStateException: remote endpoint in state [TEXT_PARTIAL_WRITING] khi nhieu luong Redis listener
-        // (Container-*) cung day message toi cung mot user luc throughput cao (vd: fan-out group chat).
-        // sendTimeLimit=10s, bufferSizeLimit=512KB: client cham/nghen se bi dong session thay vi keo sap server.
         WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(session, 10_000, 512 * 1024);
 
         boolean firstDeviceOfUserToConnect = this.localSessionManagement.register(userId, deviceId, concurrentSession);
-        // cai nay la de SUBSCRIBE vao redis pub sub channel lan dau tien
         if (firstDeviceOfUserToConnect) {
             this.webSocketRedisService.markOnline(userId);
             broadcastPresence(userId, "ONLINE");
@@ -120,14 +112,8 @@ public class ChatHandler extends TextWebSocketHandler {
                     "type", "UNREAD_SNAPSHOT",
                     "counts", counts
             ));
-            // Fix 3 (broken pipe): gui snapshot qua publishToUser() thay vi session.sendMessage() thang.
-            // publishToUser -> Redis -> pushMessageToLocalWebSocketSession da co san check isOpen() (line ~297)
-            // va xu ly IOException tung device -> mot duong gui duy nhat, mot cho guard duy nhat (gom luon Fix 1/Fix 2),
-            // dong thoi day dung toi moi device online cua user (multi-device) thay vi chi session vua connect.
-            // register (line ~95) + markOnline (line ~98) da chay TRUOC nen findServersForUser da thay user.
             publishToUser(userId, snapshot);
         } catch (Exception e) {
-            // Loi that: query DB, serialize JSON... (broken pipe da duoc pushMessageToLocalWebSocketSession nuot ben trong)
             logger.error("Failed to build/push UNREAD_SNAPSHOT to userId={}", userId, e);
         }
     }
@@ -201,8 +187,8 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(savedMessage);
-            publishToUser(String.valueOf(request.getReceiverId()), outboundPayload); // Cái này là để gửi tới receiver
-            publishToUser(senderId, outboundPayload); // Cái này là để gửi tới chính sender, để check xem tin nhắn có thực sự được gửi không
+            publishToUser(String.valueOf(request.getReceiverId()), outboundPayload);
+            publishToUser(senderId, outboundPayload);
         } catch (Exception e) {
             logger.error("Failed to send direct message from senderId: {}", senderId, e);
         }
@@ -222,8 +208,6 @@ public class ChatHandler extends TextWebSocketHandler {
         }
 
         try {
-            // Cho nay luu vao database, co kha nang gay nghen vi write DB take time
-            // Co the dung message queue thay the 
             GroupMessageResult result = this.chatService.sendGroupMessage(
                     Long.parseLong(senderId),
                     request
@@ -238,13 +222,8 @@ public class ChatHandler extends TextWebSocketHandler {
     }
 
     private void validateFieldMessageTypeAndFieldContentForPrivateMessage(SendDirectMessageRequest request, JsonNode node) {
-        // Code truoc khi sua: String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
         String messageType = node.path("messageType").asText("TEXT");
         request.setMessageType(messageType);
-        // Code truoc khi sua
-//      if (!node.has("content") || node.get("content").isNull() || node.get("content").asText().isBlank()) {
-//          throw new IllegalArgumentException(messageType + " message requires content");
-//      }
 
         String content = node.path("content").asText("");
 
@@ -256,7 +235,6 @@ public class ChatHandler extends TextWebSocketHandler {
     }
 
     private void validateFieldMessageTypeAndFieldContentForGroupMessage(SendGroupMessageRequest request, JsonNode node) {
-        // Code truoc khi sua: String messageType = node.has("messageType") ? node.get("messageType").asText("TEXT") : "TEXT";
         String messageType = node.path("messageType").asText("TEXT");
         request.setMessageType(messageType);
 
@@ -372,11 +350,6 @@ public class ChatHandler extends TextWebSocketHandler {
             }
 
             try {
-                // khi co 2 message cung luc write trong 1 session thi se bi loi 
-                // Can su dung ConcurrentWebSocketSessionDecorator
-                //  java.lang.IllegalStateException: 
-                // The remote endpoint was in state [TEXT_PARTIAL_WRITING]
-                //  which is an invalid state for called method
                 session.sendMessage(new TextMessage(payload));
             } catch (IOException e) {
                 logger.error(

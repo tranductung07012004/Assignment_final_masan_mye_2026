@@ -14,9 +14,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.util.Map;
 
 @Component
-// Lý do vì sao phải sử dụng HandshakeInceptor mà không xử lý luôn
-// ở phần SecurityConfig -> HeaderAuthenticationFilter, coi thêm trong notion:
-// https://www.notion.so/T-i-sao-ph-i-s-d-ng-HandshakeInterceptor-c-a-websocket-starter-trong-Spring-37d2a771508880379800dc5d697251d7?source=copy_link
 public class JwtInterceptor implements HandshakeInterceptor {
     private final JwtUtil jwtUtil;
 
@@ -41,8 +38,6 @@ public class JwtInterceptor implements HandshakeInterceptor {
         String deviceId = queryParams.get("deviceId");
 
         if (token == null || token.isBlank()) {
-            // Chỉ set statusCode chỗ này vì trong websocket connect từ frontend thì status code là thứ duy nhất có ý nghĩa
-            // khác với HeaderAuthenticationFilter có body trong response vì nó là http method.
             res.setStatusCode(HttpStatus.UNAUTHORIZED);
             return false;
         }
@@ -57,7 +52,6 @@ public class JwtInterceptor implements HandshakeInterceptor {
             return false;
         }
 
-        // Đặt userId vào session attributes để handler dùng sau
         String userId = jwtUtil.extractUserId(token);
         attributes.put("userId", userId);
         attributes.put("deviceId", deviceId);
