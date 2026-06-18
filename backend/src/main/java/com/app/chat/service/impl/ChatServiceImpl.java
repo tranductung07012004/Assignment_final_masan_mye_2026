@@ -13,6 +13,7 @@ import com.app.chat.dto.MessageCursorPageResponse;
 import com.app.chat.dto.ResolvedMessageDto;
 import com.app.chat.dto.SendDirectMessageRequest;
 import com.app.chat.dto.SendGroupMessageRequest;
+import com.app.chat.dto.UserSummaryDto;
 import com.app.chat.entity.ChatGroup;
 import com.app.chat.entity.ChatGroupMember;
 import com.app.chat.entity.ChatMessage;
@@ -24,6 +25,7 @@ import com.app.chat.repository.ChatMessageRepository;
 import com.app.chat.repository.FriendRequestRepository;
 import com.app.chat.repository.UserRepository;
 import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.service.GroupCacheService;
 import com.app.chat.utils.CloudinaryUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +34,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -52,6 +56,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final FriendRequestRepository friendRequestRepository;
+    private final GroupCacheService groupCacheService;
     private final String cloudinaryCloudName;
 
     public ChatServiceImpl(
@@ -60,6 +65,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
             ChatMessageRepository injectedChatMessageRepository,
             UserRepository injectedUserRepository,
             FriendRequestRepository injectedFriendRequestRepository,
+            GroupCacheService injectedGroupCacheService,
             @Value("${cloudinary.cloud-name}") String injectedCloudinaryCloudName
     ) {
         this.chatGroupRepository = injectedChatGroupRepository;
@@ -67,6 +73,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
         this.chatMessageRepository = injectedChatMessageRepository;
         this.userRepository = injectedUserRepository;
         this.friendRequestRepository = injectedFriendRequestRepository;
+        this.groupCacheService = injectedGroupCacheService;
         this.cloudinaryCloudName = injectedCloudinaryCloudName;
     }
 
@@ -149,29 +156,26 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
-        // Cai nay co can check khong nhi
-        User sender = this.userRepository.findUserById(senderId)
-                .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
+        // Fix 4: sender lấy từ cache (Cache C).
+        UserSummaryDto sender = groupCacheService.getUserById(senderId);
 
-        // Cai nay co can check khong nhi
+        // Receiver: giữ check DB để bảo toàn error code RECEIVER_NOT_FOUND_IN_REQUEST
+        // (direct message không phải hot path gây nghẽn nên không cần cache lookup này).
         this.userRepository.findUserById(receiverId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND_IN_REQUEST));
 
-        // Cai nay co can check khong nhi
-        ChatGroup privateGroup = this.chatGroupRepository
-                .findPrivateChatInformationBetweenMembers(senderId, receiverId)
-                .orElseThrow(() -> new ApplicationException(ErrorCode.PRIVATE_CHAT_NOT_FOUND));
-
+        // Fix 4: groupId của private chat từ cache (Cache B) — private chat immutable nên TTL-only, không cần invalidate.
+        Long privateGroupId = groupCacheService.findPrivateChatGroupId(senderId, receiverId);
 
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
-                .groupId(privateGroup.getId())
+                .groupId(privateGroupId)
                 .senderId(senderId)
                 .content(resolvedMessage.getContent())
                 .messageType(resolvedMessage.getMessageType())
                 .metadata(resolvedMessage.getMetadata())
                 .build());
 
-        return toChatMessageResponse(savedMessage, sender);
+        return toChatMessageResponse(savedMessage, sender.getFullName(), sender.getAvatarUrl());
     }
 
     @Override
@@ -282,6 +286,8 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .createdBy(requesterId)
                 .memberRole("MEMBER")
                 .build());
+
+        evictGroupMembersAfterCommit(groupId);
     }
 
     @Override
@@ -299,6 +305,8 @@ public class ChatServiceImpl implements ChatServiceInterface {
         }
 
         this.chatGroupMemberRepository.deleteByGroupIdAndMemberId(groupId, targetMemberId);
+
+        evictGroupMembersAfterCommit(groupId);
     }
 
     @Override
@@ -324,6 +332,25 @@ public class ChatServiceImpl implements ChatServiceInterface {
         }
 
         this.chatGroupMemberRepository.deleteByGroupIdAndMemberId(groupId, requesterId);
+
+        evictGroupMembersAfterCommit(groupId);
+    }
+
+    // Fix 4: evict cache "group-members" SAU khi transaction commit.
+    // RedisCacheManager mặc định KHÔNG transaction-aware: nếu evict mid-transaction, một sendGroupMessage
+    // song song có thể cache-miss, đọc DB (chưa thấy thay đổi chưa commit) rồi repopulate lại danh sách cũ
+    // → member bị kick vẫn nằm trong cache tới hết TTL. Đăng ký afterCommit để evict đúng thời điểm.
+    private void evictGroupMembersAfterCommit(Long groupId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    groupCacheService.evictGroupMembers(groupId);
+                }
+            });
+        } else {
+            groupCacheService.evictGroupMembers(groupId);
+        }
     }
 
     @Override
@@ -336,7 +363,13 @@ public class ChatServiceImpl implements ChatServiceInterface {
         Long groupId = request.getGroupId();
 
         this.checkIfGroupExistedOrThrow(groupId);
-        this.checkIfThisIsMemberOrOwnerOfGroupOrElseThrow(groupId, senderId);
+
+        // Fix 4: một cache lookup phục vụ CẢ membership check (thay query #2) LẪN fan-out (thay query #4).
+        // memberIds là List<String> (value của cache "group-members"). Check trước khi save để không persist tin của non-member.
+        List<String> memberIds = groupCacheService.getGroupMemberIds(groupId);
+        if (!memberIds.contains(String.valueOf(senderId))) {
+            throw new ApplicationException(ErrorCode.NOT_A_GROUP_MEMBER);
+        }
 
         ResolvedMessageDto resolvedMessage = resolveOutgoingMessage(
                 senderId,
@@ -344,9 +377,8 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
-        // Cho nay can check khong nhi, hot path nay nguy hiem qua
-        User sender = userRepository.findUserById(senderId)
-                .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
+        // Fix 4: sender lấy từ cache (Cache C) thay vì query DB mỗi tin.
+        UserSummaryDto sender = groupCacheService.getUserById(senderId);
 
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
                 .groupId(groupId)
@@ -356,13 +388,9 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .metadata(resolvedMessage.getMetadata())
                 .build());
 
-        // Cho nay check lam sao nhi, thong tin nay co nen cache lai khong nhi
-        List<Long> memberIds = chatGroupMemberRepository.findByGroupId(groupId)
-                .stream()
-                .map(ChatGroupMember::getMemberId)
-                .toList();
-
-        return new GroupMessageResult(toChatMessageResponse(savedMessage, sender), memberIds);
+        return new GroupMessageResult(
+                toChatMessageResponse(savedMessage, sender.getFullName(), sender.getAvatarUrl()),
+                memberIds);
     }
 
     @Override
@@ -403,7 +431,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
                         return r;
                     }
                     return sender != null
-                            ? toChatMessageResponse(msg, sender)
+                            ? toChatMessageResponse(msg, sender.getFullName(), sender.getAvatarUrl())
                             : toChatMessageResponseWithoutSender(msg);
                 })
                 .toList();
@@ -553,13 +581,15 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .build();
     }
 
-    private ChatMessageResponse toChatMessageResponse(ChatMessage message, User sender) {
+    // Fix 4: nhận fullName/avatarUrl thay vì entity User, để dùng được cho cả UserSummaryDto (hot path, cache)
+    // lẫn User entity (loadMessages) mà không ràng buộc vào một kiểu cụ thể.
+    private ChatMessageResponse toChatMessageResponse(ChatMessage message, String senderFullName, String senderAvatarUrl) {
         ChatMessageResponse response = new ChatMessageResponse();
         response.setId(message.getId());
         response.setGroupId(message.getGroupId());
         response.setSenderMemberId(message.getSenderId());
-        response.setSenderFullName(sender.getFullName());
-        response.setSenderAvatarUrl(sender.getAvatarUrl());
+        response.setSenderFullName(senderFullName);
+        response.setSenderAvatarUrl(senderAvatarUrl);
         response.setContent(message.getContent());
         response.setMessageType(message.getMessageType());
         response.setMetadata(message.getMetadata());

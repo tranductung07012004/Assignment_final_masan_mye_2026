@@ -229,8 +229,8 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(result.getMessage());
-            for (Long memberId : result.getMemberIds()) {
-                publishToUser(String.valueOf(memberId), outboundPayload);
+            for (String memberId : result.getMemberIds()) {
+                publishToUser(memberId, outboundPayload);
             }
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
