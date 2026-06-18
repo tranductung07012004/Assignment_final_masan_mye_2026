@@ -71,11 +71,6 @@ public class AuthController {
             HttpServletResponse res
             ) {
 
-        // Thieu cai xu ly chan user khi access token con han su dung bang redis
-        // Chung ta se xu ly bang cach luu access token cua user nay vao redis,
-        // vi du nhu blacklist:@a3sda3sd@... = ""
-        // chung ta ko dung blacklist:{userId} = ""
-        // la tai vi neu nhu user muon dang nhap lai, ma trong thoi gian do cai TTL cua blacklist:access_token:{userId} = "" van con thi no se ko dang nhap duoc
 
         if (refreshToken == null) {
             return ResponseEntity

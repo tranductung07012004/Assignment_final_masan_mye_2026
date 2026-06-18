@@ -156,15 +156,11 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
-        // Fix 4: sender lấy từ cache (Cache C).
         UserSummaryDto sender = groupCacheService.getUserById(senderId);
 
-        // Receiver: giữ check DB để bảo toàn error code RECEIVER_NOT_FOUND_IN_REQUEST
-        // (direct message không phải hot path gây nghẽn nên không cần cache lookup này).
         this.userRepository.findUserById(receiverId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.RECEIVER_NOT_FOUND_IN_REQUEST));
 
-        // Fix 4: groupId của private chat từ cache (Cache B) — private chat immutable nên TTL-only, không cần invalidate.
         Long privateGroupId = groupCacheService.findPrivateChatGroupId(senderId, receiverId);
 
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
@@ -195,13 +191,11 @@ public class ChatServiceImpl implements ChatServiceInterface {
 
         List<Long> memberIds = request.getMemberIds() == null ? new ArrayList<>() : request.getMemberIds();
 
-        // deduplicate and exclude creator from memberIds (creator is always added separately)
         List<Long> distinctOtherMembers = memberIds.stream()
                 .filter(id -> !id.equals(creatorId))
                 .distinct()
                 .toList();
 
-        // +1 for the creator
         int totalMembers = distinctOtherMembers.size() + 1;
         if (totalMembers < GROUP_MEMBER_MINIMUM) {
             throw new ApplicationException(ErrorCode.GROUP_MEMBER_MINIMUM_NOT_MET);
@@ -336,10 +330,6 @@ public class ChatServiceImpl implements ChatServiceInterface {
         evictGroupMembersAfterCommit(groupId);
     }
 
-    // Fix 4: evict cache "group-members" SAU khi transaction commit.
-    // RedisCacheManager mặc định KHÔNG transaction-aware: nếu evict mid-transaction, một sendGroupMessage
-    // song song có thể cache-miss, đọc DB (chưa thấy thay đổi chưa commit) rồi repopulate lại danh sách cũ
-    // → member bị kick vẫn nằm trong cache tới hết TTL. Đăng ký afterCommit để evict đúng thời điểm.
     private void evictGroupMembersAfterCommit(Long groupId) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -364,8 +354,6 @@ public class ChatServiceImpl implements ChatServiceInterface {
 
         this.checkIfGroupExistedOrThrow(groupId);
 
-        // Fix 4: một cache lookup phục vụ CẢ membership check (thay query #2) LẪN fan-out (thay query #4).
-        // memberIds là List<String> (value của cache "group-members"). Check trước khi save để không persist tin của non-member.
         List<String> memberIds = groupCacheService.getGroupMemberIds(groupId);
         if (!memberIds.contains(String.valueOf(senderId))) {
             throw new ApplicationException(ErrorCode.NOT_A_GROUP_MEMBER);
@@ -377,7 +365,6 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 request.getContent()
         );
 
-        // Fix 4: sender lấy từ cache (Cache C) thay vì query DB mỗi tin.
         UserSummaryDto sender = groupCacheService.getUserById(senderId);
 
         ChatMessage savedMessage = chatMessageRepository.save(ChatMessage.builder()
@@ -581,8 +568,6 @@ public class ChatServiceImpl implements ChatServiceInterface {
                 .build();
     }
 
-    // Fix 4: nhận fullName/avatarUrl thay vì entity User, để dùng được cho cả UserSummaryDto (hot path, cache)
-    // lẫn User entity (loadMessages) mà không ràng buộc vào một kiểu cụ thể.
     private ChatMessageResponse toChatMessageResponse(ChatMessage message, String senderFullName, String senderAvatarUrl) {
         ChatMessageResponse response = new ChatMessageResponse();
         response.setId(message.getId());

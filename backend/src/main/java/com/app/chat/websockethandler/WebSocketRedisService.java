@@ -64,8 +64,6 @@ public class WebSocketRedisService {
                 byte[] key = presenceKey(userId).getBytes(StandardCharsets.UTF_8);
                 connection.keyCommands().exists(key);
             }
-            // Bat buoc phai tra null trong ham executePipelined(), nhung gia tri tra ve cua ham lambda nay khong duoc su dung, 
-            // the nen tra ve null giong nhu la mot cai hinh thuc bat buoc thoi chu khong anh huong den ket qua
             return null;
         });
 
