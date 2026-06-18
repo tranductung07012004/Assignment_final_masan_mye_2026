@@ -34,7 +34,16 @@ public class LocalSessionManagement {
             return false;
         }
 
-        deviceSessions.remove(deviceId, session);
+        // So sanh theo getId() thay vi theo object: session luu trong map la
+        // ConcurrentWebSocketSessionDecorator (boc o afterConnectionEstablished), con tham so 'session'
+        // o day la session goc Spring truyen vao luc dong ket noi -> 2 object khac nhau.
+        // remove(deviceId, session) theo object se KHONG khop -> khong xoa duoc.
+        // Decorator uy quyen getId() ve session goc nen so sanh theo id van dung,
+        // dong thoi van giu duoc tinh chat "chi xoa neu dung session hien tai" (tranh xoa nham session moi luc reconnect).
+        WebSocketSession current = deviceSessions.get(deviceId);
+        if (current != null && current.getId().equals(session.getId())) {
+            deviceSessions.remove(deviceId, current);
+        }
 
         // Remove xong ma thay deviceSessions rong,
         // thi co nghia la user nay ngung connect tren moi device

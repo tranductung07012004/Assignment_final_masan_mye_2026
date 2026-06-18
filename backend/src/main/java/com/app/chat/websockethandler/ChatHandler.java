@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
@@ -99,7 +100,14 @@ public class ChatHandler extends TextWebSocketHandler {
             }
         }
 
-        boolean firstDeviceOfUserToConnect = this.localSessionManagement.register(userId, deviceId, session);
+        // Boc session bang ConcurrentWebSocketSessionDecorator de SERIALIZE moi lan sendMessage tren cung mot session.
+        // Tomcat RemoteEndpoint KHONG cho phep 2 luong gui dong thoi -> neu khong boc se gap loi
+        // IllegalStateException: remote endpoint in state [TEXT_PARTIAL_WRITING] khi nhieu luong Redis listener
+        // (Container-*) cung day message toi cung mot user luc throughput cao (vd: fan-out group chat).
+        // sendTimeLimit=10s, bufferSizeLimit=512KB: client cham/nghen se bi dong session thay vi keo sap server.
+        WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(session, 10_000, 512 * 1024);
+
+        boolean firstDeviceOfUserToConnect = this.localSessionManagement.register(userId, deviceId, concurrentSession);
         // cai nay la de SUBSCRIBE vao redis pub sub channel lan dau tien
         if (firstDeviceOfUserToConnect) {
             this.webSocketRedisService.markOnline(userId);
@@ -364,6 +372,11 @@ public class ChatHandler extends TextWebSocketHandler {
             }
 
             try {
+                // khi co 2 message cung luc write trong 1 session thi se bi loi 
+                // Can su dung ConcurrentWebSocketSessionDecorator
+                //  java.lang.IllegalStateException: 
+                // The remote endpoint was in state [TEXT_PARTIAL_WRITING]
+                //  which is an invalid state for called method
                 session.sendMessage(new TextMessage(payload));
             } catch (IOException e) {
                 logger.error(
