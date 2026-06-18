@@ -73,7 +73,6 @@ public class WebSocketRedisService {
         for (int i = 0; i < idList.size(); i++) {
             Object result = results.get(i);
             System.out.println("result: " + result);
-            // Can make sure xem la cai result la dang integer 0/1 hay boolean true/false
             if (Boolean.TRUE.equals(result)) {
                 online.add(idList.get(i));
             }
