@@ -36,3 +36,5 @@ build/
 
 ### Local dev media uploads (MEDIA_ROOT) ###
 /chat-media/
+# Runtime logs (bind-mounted from app container)
+logs/

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- Spring Boot's default patterns + the standard CONSOLE appender (so `docker compose logs` still works) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+    <!-- Thư mục ghi log; trong Docker bind-mount ra host. Mặc định /app/logs khi chạy container. -->
+    <property name="LOG_PATH" value="${LOG_PATH:-./logs}"/>
+
+    <!--
+        File đang ghi (live) = app-${HOSTNAME}.log  => luôn tail file này.
+        Khi đầy maxFileSize, logback cuộn (roll) nó sang file lưu trữ có ĐÁNH SỐ:
+            app-${HOSTNAME}.2026-06-19.0.log, .1.log, .2.log ...
+        Số (và ngày) càng lớn = càng MỚI. KHÔNG set maxHistory/totalSizeCap nên KHÔNG bao giờ xoá file cũ.
+        ${HOSTNAME} (= container id) để mỗi instance khi scale app=3 ghi bộ file riêng.
+    -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_PATH}/app-${HOSTNAME}.log</file>
+        <append>true</append>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_PATH}/app-${HOSTNAME}.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <!-- KHÔNG có maxHistory / totalSizeCap => giữ lại TẤT CẢ file log, không xoá -->
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
