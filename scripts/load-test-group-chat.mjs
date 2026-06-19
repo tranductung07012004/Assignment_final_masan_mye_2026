@@ -46,11 +46,16 @@ import { spawnSync } from 'node:child_process';
 
 const BASE_URL     = process.env.BASE_URL     || 'http://localhost';
 const WS_URL       = process.env.WS_URL       || 'ws://localhost/ws';
-const NUM_USERS    = parseInt(process.env.NUM_USERS    || '800', 10);
+const NUM_USERS    = parseInt(process.env.NUM_USERS    || '1500', 10);
 const PASSWORD     = process.env.PASSWORD     || 'Test1234';
 const EMAIL_PREFIX = process.env.EMAIL_PREFIX || 'loadtest';
 const SETTLE_MS    = parseInt(process.env.SETTLE_MS    || '30000', 10);
 const MSG_PER_USER = parseInt(process.env.MSG_PER_USER || '1', 10);
+// Mở WS theo lô để tránh "open storm" (mở tất cả cùng lúc làm rớt handshake).
+// WS_OPEN_BATCH=0 (mặc định) = mở tất cả cùng lúc (hành vi cũ).
+// >0 = mỗi lô mở bấy nhiêu connection rồi nghỉ WS_OPEN_DELAY_MS trước lô kế.
+const WS_OPEN_BATCH    = parseInt(process.env.WS_OPEN_BATCH    || '0', 10);
+const WS_OPEN_DELAY_MS = parseInt(process.env.WS_OPEN_DELAY_MS || '100', 10);
 
 // ---- Kiểm tra DB (đếm tin LOADTEST thực sự ghi xuống Postgres) ----
 // Chạy `docker exec <container> psql ...` nên KHÔNG cần driver pg.
@@ -62,6 +67,9 @@ const PG_DB         = process.env.PG_DB        || 'db';
 
 const emailOf  = (i) => `${EMAIL_PREFIX}${i}@example.com`;
 const deviceOf = (i) => `loadtest-device-${i}`;
+// connectionId: định danh PER-TAB (per-connection), khác deviceId (định danh trình duyệt/auth).
+// WS handshake BẮT BUỘC param này (JwtInterceptor) — thiếu sẽ bị 400. Mỗi user = 1 connection = 1 id.
+const connOf   = (i) => `loadtest-conn-${i}`;
 const sleep    = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Mỗi tin tải được encode dạng: LOADTEST|<senderIdx>|<seq>|<epochMillisGửi>
@@ -124,7 +132,8 @@ function decodeJwtSub(jwt) {
 /** Mở 1 WebSocket cho user; resolve khi đã open. Gắn handler đếm tin nhận. */
 function connectClient(user, groupId, stats) {
   return new Promise((resolve, reject) => {
-    const url = `${WS_URL}?token=${encodeURIComponent(user.token)}&deviceId=${encodeURIComponent(user.deviceId)}`;
+    const url = `${WS_URL}?token=${encodeURIComponent(user.token)}&deviceId=${encodeURIComponent(user.deviceId)}`
+      + `&connectionId=${encodeURIComponent(connOf(user.idx))}`;
     const ws = new WebSocket(url);
     user.ws = ws;
     user.received = 0;
@@ -258,7 +267,19 @@ async function main() {
   // ---- 3. Mở 50 WebSocket ----
   logStep('Mở WebSocket cho tất cả user...');
   const stats = { totalReceived: 0, latencies: [], wsErrors: 0, closes: [] };
-  const conns = await Promise.allSettled(users.map((u) => connectClient(u, groupId, stats)));
+  let conns;
+  if (WS_OPEN_BATCH > 0) {
+    console.log(`  (mở theo lô ${WS_OPEN_BATCH}, nghỉ ${WS_OPEN_DELAY_MS}ms giữa lô)`);
+    conns = [];
+    for (let start = 0; start < users.length; start += WS_OPEN_BATCH) {
+      const slice = users.slice(start, start + WS_OPEN_BATCH);
+      const settled = await Promise.allSettled(slice.map((u) => connectClient(u, groupId, stats)));
+      conns.push(...settled);
+      if (start + WS_OPEN_BATCH < users.length) await sleep(WS_OPEN_DELAY_MS);
+    }
+  } else {
+    conns = await Promise.allSettled(users.map((u) => connectClient(u, groupId, stats)));
+  }
   const connected = users.filter((u) => u.ws && u.ws.readyState === WebSocket.OPEN);
   const failedConn = conns.filter((c) => c.status === 'rejected');
   failedConn.forEach((c) => console.error(`  ✗ ${c.reason.message}`));
