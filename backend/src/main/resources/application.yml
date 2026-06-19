@@ -1,5 +1,11 @@
 server:
   port: ${SERVER_PORT:8080}
+  tomcat:
+    threads:
+      # Option 2: giao tin local chạy inline trên thread WS của Tomcat (scale=1),
+      # nên nâng trần thread để gánh burst fan-out. Mặc định Tomcat chỉ 200.
+      max: 400
+      min-spare: 50
 
 spring:
   config:
@@ -7,13 +13,22 @@ spring:
   application:
     name: chat
 
+    # kafka: 
+    # bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    # producer:
+    #   key-serializer: org.apache.kafka.common.serialization.StringSerializer
+    #   value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    #   acks: all
+    #   properties:
+    #     enable.idempotence: true
+
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     hikari:
       minimum-idle: 10
-      maximum-pool-size: 50
+      maximum-pool-size: 40
 
   jpa:
     hibernate:
