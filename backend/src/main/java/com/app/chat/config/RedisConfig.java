@@ -26,9 +26,9 @@ public class RedisConfig {
             RedisConnectionFactory injectedConnectionFactory
     ) {
         ThreadPoolTaskExecutor exec = new ThreadPoolTaskExecutor();
-        exec.setCorePoolSize(8);
-        exec.setMaxPoolSize(32);
-        exec.setQueueCapacity(10_000);
+        exec.setCorePoolSize(32);
+        exec.setMaxPoolSize(256);
+        exec.setQueueCapacity(20_000);
         exec.setThreadNamePrefix("redis-listener-");
         exec.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         exec.initialize();
