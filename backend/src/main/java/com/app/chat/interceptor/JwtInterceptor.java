@@ -36,6 +36,7 @@ public class JwtInterceptor implements HandshakeInterceptor {
 
         String token = queryParams.get("token");
         String deviceId = queryParams.get("deviceId");
+        String connectionId = queryParams.get("connectionId");
 
         if (token == null || token.isBlank()) {
             res.setStatusCode(HttpStatus.UNAUTHORIZED);
@@ -43,6 +44,13 @@ public class JwtInterceptor implements HandshakeInterceptor {
         }
 
         if (deviceId == null || deviceId.isBlank()) {
+            res.setStatusCode(HttpStatus.BAD_REQUEST);
+            return false;
+        }
+
+        // Unique per browser tab. Lets one browser hold several concurrent WebSocket
+        // connections (one per tab) without the tabs kicking each other out.
+        if (connectionId == null || connectionId.isBlank()) {
             res.setStatusCode(HttpStatus.BAD_REQUEST);
             return false;
         }
@@ -55,6 +63,7 @@ public class JwtInterceptor implements HandshakeInterceptor {
         String userId = jwtUtil.extractUserId(token);
         attributes.put("userId", userId);
         attributes.put("deviceId", deviceId);
+        attributes.put("connectionId", connectionId);
         return true;
     }
 

@@ -4,7 +4,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import type { ChatMessage } from '@/types/chat'
 import type { MarkRead, PresenceQuery } from '@/types/websocket'
-import { getDeviceId } from '@/utils/deviceId'
+import { getConnectionId, getDeviceId } from '@/utils/deviceId'
 import { toast } from '@/utils/toast'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8080'
@@ -96,7 +96,8 @@ export function useWebSocket() {
     clearReconnectTimer()
 
     const deviceId = getDeviceId()
-    const wsUrl = `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}`
+    const connectionId = getConnectionId()
+    const wsUrl = `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}&connectionId=${encodeURIComponent(connectionId)}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -173,7 +174,7 @@ export function useWebSocket() {
     ws.onclose = () => {
       // Fix 4 (broken pipe): chi socket dang la "current" moi duoc phep reconnect.
       // Neu socket nay da bi thay bang socket moi (stale) hoac dong chu dich (cleanup / React StrictMode) ->
-      // KHONG reconnect, tranh tao them WS trung deviceId khien server kill -> reconnect loop.
+      // KHONG reconnect, tranh tao them WS trung connectionId khien server kill -> reconnect loop.
       const isCurrent = wsRef.current === ws
       if (isCurrent) {
         wsRef.current = null
