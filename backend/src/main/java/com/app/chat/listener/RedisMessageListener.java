@@ -37,9 +37,13 @@ public class RedisMessageListener implements MessageListener {
         try {
             String wrappedJson = new String(message.getBody(), StandardCharsets.UTF_8);
             JsonNode node = objectMapper.readTree(wrappedJson);
-            String targetUserId = node.get("targetUserId").asText();
             String actualPayload = node.get("message").asText();
-            chatHandler.pushMessageToLocalWebSocketSession(targetUserId, actualPayload);
+            JsonNode targetUserIds = node.get("targetUserIds");
+            if (targetUserIds != null && targetUserIds.isArray()) {
+                for (JsonNode id : targetUserIds) {
+                    chatHandler.pushMessageToLocalWebSocketSession(id.asText(), actualPayload);
+                }
+            }
         } catch (Exception e) {
             logger.error("Failed to process Redis message on channel: {}", channel, e);
         }

@@ -8,8 +8,11 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -53,6 +56,42 @@ public class WebSocketRedisService {
 
     public Set<String> findServersForUser(String userId) {
         return redisTemplate.opsForSet().members(presenceKey(userId));
+    }
+
+    /**
+     * Resolve presence cho NHIỀU user trong MỘT pipeline (thay vì 1 SMEMBERS/round-trip per user).
+     * Trả map userId -> tập serverId đang giữ session của user đó (rỗng nếu offline).
+     */
+    public Map<String, Set<String>> findServersForUsers(Collection<String> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<String> idList = new ArrayList<>(new LinkedHashSet<>(userIds));
+        List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+            for (String userId : idList) {
+                byte[] key = presenceKey(userId).getBytes(StandardCharsets.UTF_8);
+                connection.setCommands().sMembers(key);
+            }
+            return null;
+        });
+
+        Map<String, Set<String>> serversByUser = new HashMap<>();
+        for (int i = 0; i < idList.size(); i++) {
+            Object result = i < results.size() ? results.get(i) : null;
+            Set<String> servers = new HashSet<>();
+            if (result instanceof Collection<?> members) {
+                for (Object element : members) {
+                    if (element instanceof byte[] bytes) {
+                        servers.add(new String(bytes, StandardCharsets.UTF_8));
+                    } else if (element != null) {
+                        servers.add(element.toString());
+                    }
+                }
+            }
+            serversByUser.put(idList.get(i), servers);
+        }
+        return serversByUser;
     }
 
     public Set<String> filterOnline(Collection<String> userIds) {

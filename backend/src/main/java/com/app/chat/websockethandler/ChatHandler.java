@@ -28,7 +28,9 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -83,25 +85,27 @@ public class ChatHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(@NonNull WebSocketSession session) {
         String userId = (String) session.getAttributes().get("userId");
-        String deviceId = (String) session.getAttributes().get("deviceId");
+        String connectionId = (String) session.getAttributes().get("connectionId");
 
-        ConcurrentHashMap<String, WebSocketSession> deviceSessions = localSessionManagement.getDeviceSessions(userId);
+        ConcurrentHashMap<String, WebSocketSession> connections = localSessionManagement.getUserConnections(userId);
 
-        if (deviceSessions != null) {
-            WebSocketSession existingSession = deviceSessions.get(deviceId);
+        if (connections != null) {
+            // Only closes a stale socket of the SAME tab (same connectionId), e.g. a reconnect
+            // after a broken pipe. Other tabs have different connectionIds and are left alone.
+            WebSocketSession existingSession = connections.get(connectionId);
             if (existingSession != null && existingSession.isOpen() && !existingSession.getId().equals(session.getId())) {
                 try {
                     existingSession.close(CloseStatus.NORMAL);
                 } catch (IOException e) {
-                    logger.warn("Failed to close previous WebSocket for userId={}, deviceId={}", userId, deviceId, e);
+                    logger.warn("Failed to close previous WebSocket for userId={}, connectionId={}", userId, connectionId, e);
                 }
             }
         }
 
         WebSocketSession concurrentSession = new ConcurrentWebSocketSessionDecorator(session, 10_000, 512 * 1024);
 
-        boolean firstDeviceOfUserToConnect = this.localSessionManagement.register(userId, deviceId, concurrentSession);
-        if (firstDeviceOfUserToConnect) {
+        boolean firstConnectionOfUser = this.localSessionManagement.register(userId, connectionId, concurrentSession);
+        if (firstConnectionOfUser) {
             this.webSocketRedisService.markOnline(userId);
             broadcastPresence(userId, "ONLINE");
         }
@@ -159,9 +163,9 @@ public class ChatHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(@NonNull WebSocketSession session, @NonNull CloseStatus status) {
         String userId = session.getAttributes().get("userId").toString();
-        String deviceId = session.getAttributes().get("deviceId").toString();
+        String connectionId = session.getAttributes().get("connectionId").toString();
 
-        boolean fullyOffline = this.localSessionManagement.unregister(userId, deviceId, session);
+        boolean fullyOffline = this.localSessionManagement.unregister(userId, connectionId, session);
         if (fullyOffline) {
             this.webSocketRedisService.markOffline(userId);
             broadcastPresence(userId, "OFFLINE");
@@ -187,8 +191,7 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(savedMessage);
-            publishToUser(String.valueOf(request.getReceiverId()), outboundPayload);
-            publishToUser(senderId, outboundPayload);
+            publishToUsers(List.of(String.valueOf(request.getReceiverId()), senderId), outboundPayload);
         } catch (Exception e) {
             logger.error("Failed to send direct message from senderId: {}", senderId, e);
         }
@@ -213,9 +216,7 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(result.getMessage());
-            for (String memberId : result.getMemberIds()) {
-                publishToUser(memberId, outboundPayload);
-            }
+            publishToUsers(result.getMemberIds(), outboundPayload);
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
         }
@@ -316,36 +317,63 @@ public class ChatHandler extends TextWebSocketHandler {
     }
 
     private void publishToUser(String userId, String messagePayload) {
-        Set<String> targetServers = webSocketRedisService.findServersForUser(userId);
-        if (targetServers == null || targetServers.isEmpty()) {
+        publishToUsers(List.of(userId), messagePayload);
+    }
+
+    /**
+     * Giao 1 payload tới NHIỀU user một cách hiệu quả:
+     *   - Option 4: resolve presence của tất cả user trong MỘT pipeline.
+     *   - Option 2: user nối vào CHÍNH server này -> push thẳng vào WS local, KHÔNG qua Redis.
+     *   - Option 3: user ở server khác -> gom theo server rồi PUBLISH đúng 1 lần/server
+     *               (kèm danh sách userId), thay vì 1 publish / user.
+     */
+    private void publishToUsers(Collection<String> userIds, String messagePayload) {
+        if (userIds == null || userIds.isEmpty()) {
             return;
         }
 
-        try {
-            String wrappedPayload = objectMapper.writeValueAsString(Map.of(
-                    "targetUserId", userId,
-                    "message", messagePayload
-            ));
+        Set<String> distinctUserIds = new LinkedHashSet<>(userIds);
+        Map<String, Set<String>> serversByUser = webSocketRedisService.findServersForUsers(distinctUserIds);
 
-            for (String targetServer : targetServers) {
-                redisTemplate.convertAndSend(SERVER_CHANNEL_PREFIX + targetServer, wrappedPayload);
+        Map<String, List<String>> usersByRemoteServer = new HashMap<>();
+        for (String userId : distinctUserIds) {
+            Set<String> servers = serversByUser.get(userId);
+            if (servers == null || servers.isEmpty()) {
+                continue; // user offline ở mọi server
             }
-        } catch (Exception e) {
-            logger.error("Failed to publish message to userId={}", userId, e);
+            for (String server : servers) {
+                if (serverId.equals(server)) {
+                    pushMessageToLocalWebSocketSession(userId, messagePayload);
+                } else {
+                    usersByRemoteServer.computeIfAbsent(server, k -> new ArrayList<>()).add(userId);
+                }
+            }
+        }
+
+        for (Map.Entry<String, List<String>> entry : usersByRemoteServer.entrySet()) {
+            try {
+                String wrappedPayload = objectMapper.writeValueAsString(Map.of(
+                        "targetUserIds", entry.getValue(),
+                        "message", messagePayload
+                ));
+                redisTemplate.convertAndSend(SERVER_CHANNEL_PREFIX + entry.getKey(), wrappedPayload);
+            } catch (Exception e) {
+                logger.error("Failed to publish message to server={}", entry.getKey(), e);
+            }
         }
     }
 
     public void pushMessageToLocalWebSocketSession(String userId, String payload) {
-        ConcurrentHashMap<String, WebSocketSession> deviceSessions = localSessionManagement.getDeviceSessions(userId);
-        if (deviceSessions == null || deviceSessions.isEmpty()) {
-            logger.warn("This userId: {}does not have any device online, so receiver will not receive message", userId);
+        ConcurrentHashMap<String, WebSocketSession> connections = localSessionManagement.getUserConnections(userId);
+        if (connections == null || connections.isEmpty()) {
+            logger.warn("This userId: {}does not have any connection online, so receiver will not receive message", userId);
             return;
         }
 
-        for (Map.Entry<String, WebSocketSession> entry : deviceSessions.entrySet()) {
+        for (Map.Entry<String, WebSocketSession> entry : connections.entrySet()) {
             WebSocketSession session = entry.getValue();
             if (session == null || !session.isOpen()) {
-                logger.warn("The websocket session of the deviceId {} and userId {} is null or closed", entry.getKey(), userId);
+                logger.warn("The websocket session of the connectionId {} and userId {} is null or closed", entry.getKey(), userId);
                 continue;
             }
 
@@ -353,7 +381,7 @@ public class ChatHandler extends TextWebSocketHandler {
                 session.sendMessage(new TextMessage(payload));
             } catch (IOException e) {
                 logger.error(
-                        "Failed to send message to userId={}, deviceId={}",
+                        "Failed to send message to userId={}, connectionId={}",
                         userId,
                         entry.getKey(),
                         e
