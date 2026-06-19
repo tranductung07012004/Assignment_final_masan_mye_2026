@@ -9,17 +9,24 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
+import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class UploadServiceImpl implements UploadService {
 
-    private static final long MAX_IMAGE_BYTES = 10L * 1024 * 1024;  // 10MB
-    private static final long MAX_VIDEO_BYTES = 30L * 1024 * 1024;  // 30MB
+    private final long MAX_IMAGE_BYTES = 50L * 1024 * 1024;   // 50MB
+    private final long MAX_VIDEO_BYTES = 200L * 1024 * 1024;  // 200MB
+
+    // Extension cho phép — lấy từ tên file client gửi nhưng phải nằm trong allowlist này.
+    private final Set<String> IMAGE_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp", "gif");
+    private final Set<String> VIDEO_EXTENSIONS = Set.of("mp4", "webm", "mov");
 
     private final Path mediaRoot;
     private final String urlPrefix;
@@ -29,7 +36,7 @@ public class UploadServiceImpl implements UploadService {
             @Value("${app.media.url-prefix}") String injectedUrlPrefix
     ) {
         this.mediaRoot = Paths.get(injectedMediaRoot).toAbsolutePath().normalize();
-        this.urlPrefix = stripTrailingSlash(injectedUrlPrefix);
+        this.urlPrefix = injectedUrlPrefix;
     }
 
     @Override
@@ -51,33 +58,24 @@ public class UploadServiceImpl implements UploadService {
             throw new ApplicationException(ErrorCode.UPLOAD_FILE_TOO_LARGE);
         }
 
-        byte[] bytes;
-        try {
-            bytes = file.getBytes();
-        } catch (IOException e) {
-            throw new ApplicationException(ErrorCode.UPLOAD_FAILED);
-        }
-
-        // Không tin extension/Content-Type client gửi — sniff magic bytes để xác định loại thật.
-        DetectedMedia detected = detect(bytes);
-        if (detected == null || detected.video != wantVideo) {
-            throw new ApplicationException(ErrorCode.UNSUPPORTED_MEDIA_TYPE);
-        }
-
-        // chat/{userId}/{yyyy}/{MM}/{uuid}.{ext} — shard theo tháng để 1 thư mục không phình to.
+        // Format file: chat/{userId}/{yyyy}/{MM}/{uuid}.{ext}
         LocalDate today = LocalDate.now();
         String relativeDir = String.format("chat/%d/%04d/%02d", userId, today.getYear(), today.getMonthValue());
-        String fileName = UUID.randomUUID() + "." + detected.extension;
+
+        // Lấy extension từ tên file client gửi, nhưng phải khớp allowlist của resourceType.
+        String extension = this.resolveExtension(file.getOriginalFilename(), wantVideo);
+        String fileName = UUID.randomUUID() + "." + extension;
 
         Path targetDir = mediaRoot.resolve(relativeDir).normalize();
         if (!targetDir.startsWith(mediaRoot)) {
-            // an toàn tuyệt đối — không bao giờ xảy ra với input ở trên, nhưng chặn path traversal.
+            // bao dam khong co chuyen ghi vao ngoai thu muc mediaRoot duoc inject tu "app.media.root" trong application.yml.
             throw new ApplicationException(ErrorCode.UPLOAD_FAILED);
         }
 
-        try {
+        try (InputStream in = file.getInputStream()) {
             Files.createDirectories(targetDir);
-            Files.write(targetDir.resolve(fileName), bytes);
+            // Stream thẳng ra đĩa — không load cả file vào heap (quan trọng với video 200MB).
+            Files.copy(in, targetDir.resolve(fileName));
         } catch (IOException e) {
             throw new ApplicationException(ErrorCode.UPLOAD_FAILED);
         }
@@ -86,61 +84,83 @@ public class UploadServiceImpl implements UploadService {
         return UploadResultResponse.builder().url(url).build();
     }
 
-    private static String stripTrailingSlash(String value) {
-        if (value == null || value.isBlank()) {
-            return "";
+    private String resolveExtension(String originalFilename, boolean wantVideo) {
+        String ext = this.extractExtension(originalFilename);
+        if (ext == null) {
+            throw new ApplicationException(ErrorCode.EXTENSION_OF_FILE_IS_NULL);
         }
-        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
+        if ((wantVideo && !VIDEO_EXTENSIONS.contains(ext)) || !IMAGE_EXTENSIONS.contains(ext)) {
+            throw new ApplicationException(ErrorCode.UNSUPPORTED_MEDIA_TYPE);
+        }
+        return ext;
     }
 
-    // ---- magic-byte detection ----
-
-    private static final class DetectedMedia {
-        final String extension;
-        final boolean video;
-
-        DetectedMedia(String extension, boolean video) {
-            this.extension = extension;
-            this.video = video;
-        }
-    }
-
-    private static DetectedMedia detect(byte[] b) {
-        if (b.length < 12) {
+    private String extractExtension(String originalFilename) {
+        if (originalFilename == null) {
             return null;
         }
-
-        // JPEG: FF D8 FF
-        if (u(b[0]) == 0xFF && u(b[1]) == 0xD8 && u(b[2]) == 0xFF) {
-            return new DetectedMedia("jpg", false);
+        int dot = originalFilename.lastIndexOf('.');
+        if (dot < 0 || dot == originalFilename.length() - 1) {
+            return null;
         }
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
-        if (u(b[0]) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') {
-            return new DetectedMedia("png", false);
-        }
-        // GIF: "GIF8"
-        if (b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8') {
-            return new DetectedMedia("gif", false);
-        }
-        // WebP: "RIFF"...."WEBP"
-        if (b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
-                && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') {
-            return new DetectedMedia("webp", false);
-        }
-        // WebM / Matroska (EBML): 1A 45 DF A3
-        if (u(b[0]) == 0x1A && u(b[1]) == 0x45 && u(b[2]) == 0xDF && u(b[3]) == 0xA3) {
-            return new DetectedMedia("webm", true);
-        }
-        // ISO base media (MP4 / MOV): bytes 4..7 == "ftyp"
-        if (b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p') {
-            // major brand ở bytes 8..11; "qt  " => QuickTime (.mov), còn lại coi là mp4.
-            boolean quicktime = b[8] == 'q' && b[9] == 't';
-            return new DetectedMedia(quicktime ? "mov" : "mp4", true);
-        }
-        return null;
+        return originalFilename.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
-    private static int u(byte value) {
-        return value & 0xFF;
-    }
+    // ---- magic-byte detection (giữ lại để tham khảo — hiện KHÔNG dùng) ----
+
+//    private static final class DetectedMedia {
+//        final String extension;
+//        final boolean video;
+//
+//        DetectedMedia(String extension, boolean video) {
+//            this.extension = extension;
+//            this.video = video;
+//        }
+//    }
+
+    // Not sure about this check, so i will not use it
+    // private static DetectedMedia detect(byte[] b) {
+    //     int len = b.length;
+    //     if (len < 3) return null; // Tối thiểu phải đủ check JPEG
+
+    //     // 1. JPEG (Cần 3 bytes)
+    //     if (u(b[0]) == 0xFF && u(b[1]) == 0xD8 && u(b[2]) == 0xFF) {
+    //         return new DetectedMedia("jpg", false);
+    //     }
+
+    //     // 2. PNG (Cần 4 bytes)
+    //     if (len >= 4 && u(b[0]) == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G') {
+    //         return new DetectedMedia("png", false);
+    //     }
+
+    //     // 3. GIF (Cần 4 bytes)
+    //     if (len >= 4 && b[0] == 'G' && b[1] == 'I' && b[2] == 'F' && b[3] == '8') {
+    //         return new DetectedMedia("gif", false);
+    //     }
+
+    //     // 4. WebP (Cần đủ 12 bytes)
+    //     if (len >= 12 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F'
+    //             && b[8] == 'W' && b[9] == 'E' && b[10] == 'B' && b[11] == 'P') {
+    //         return new DetectedMedia("webp", false);
+    //     }
+
+    //     // 5. WebM / Matroska (MKV) (Cần 4 bytes)
+    //     if (len >= 4 && u(b[0]) == 0x1A && u(b[1]) == 0x45 && u(b[2]) == 0xDF && u(b[3]) == 0xA3) {
+    //         // Lưu ý: Tạm thời coi là mp4 hoặc webm tùy bạn, nhưng trình duyệt thường chịu MP4 tốt hơn.
+    //         // Nếu muốn an toàn cho thẻ <video> trên web, cân nhắc đổi extension thành mkv hoặc webm tùy nhu cầu.
+    //         return new DetectedMedia("webm", true);
+    //     }
+
+    //     // 6. MP4 / MOV (Cần ít nhất 8 bytes để check ftyp, và 12 bytes để phân biệt MOV)
+    //     if (len >= 8 && b[4] == 'f' && b[5] == 't' && b[6] == 'y' && b[7] == 'p') {
+    //         boolean quicktime = (len >= 12) && (b[8] == 'q' && b[9] == 't');
+    //         return new DetectedMedia(quicktime ? "mov" : "mp4", true);
+    //     }
+
+    //     return null;
+    // }
+
+    // private static int u(byte value) {
+    //     return value & 0xFF;
+    // }
 }

@@ -19,6 +19,7 @@ public enum ErrorCode {
     UPLOAD_FILE_REQUIRED("A file is required for upload", 400),
     UPLOAD_FILE_TOO_LARGE("Uploaded file exceeds the maximum allowed size", 400),
     UNSUPPORTED_MEDIA_TYPE("File type is not supported for this resource type", 400),
+    EXTENSION_OF_FILE_IS_NULL( "File type is null so cannot processed", 400),
     UPLOAD_FAILED("Failed to store the uploaded file", 500),
     PRIVATE_CHAT_NOT_FOUND("Private chat between these users does not exist", 404),
 
@@ -52,6 +53,7 @@ public enum ErrorCode {
     FRIEND_REQUEST_NOT_FOUND("Friend request could not be found", 404),
     FRIEND_REQUEST_NOT_RECEIVER("You are not the receiver of this friend request", 403),
     FRIEND_REQUEST_NOT_PENDING("This friend request is no longer pending", 409);
+
 
     private final String message;
     private final int status;

@@ -335,11 +335,11 @@ public class ChatServiceImpl implements ChatService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    groupCacheService.evictGroupMembers(groupId);
+                    groupCacheService.invalidateCacheGroupMembers(groupId);
                 }
             });
         } else {
-            groupCacheService.evictGroupMembers(groupId);
+            groupCacheService.invalidateCacheGroupMembers(groupId);
         }
     }
 

@@ -14,16 +14,27 @@ type ApiResponseBody = {
 
 type UploadError = Error & { status?: number }
 
-const MAX_VIDEO_BYTES = 30 * 1024 * 1024
+const MAX_IMAGE_BYTES = 50 * 1024 * 1024
+const MAX_VIDEO_BYTES = 200 * 1024 * 1024
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'] as const
 const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'] as const
+
+export function validateImageFile(file: File): void {
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type as (typeof ALLOWED_IMAGE_TYPES)[number])) {
+    throw new Error('Unsupported image format. Use JPEG, PNG, WebP, or GIF.')
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error('Image must be 50MB or smaller.')
+  }
+}
 
 export function validateVideoFile(file: File): void {
   if (!ALLOWED_VIDEO_TYPES.includes(file.type as (typeof ALLOWED_VIDEO_TYPES)[number])) {
     throw new Error('Unsupported video format. Use MP4, WebM, or MOV.')
   }
   if (file.size > MAX_VIDEO_BYTES) {
-    throw new Error('Video must be 30MB or smaller.')
+    throw new Error('Video must be 200MB or smaller.')
   }
 }
 
@@ -99,6 +110,7 @@ async function upload(
 }
 
 export async function uploadChatImage(file: File): Promise<UploadResult> {
+  validateImageFile(file)
   return upload(file, 'IMAGE')
 }
 
