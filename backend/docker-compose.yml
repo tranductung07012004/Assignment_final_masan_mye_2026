@@ -38,6 +38,11 @@ services:
     build: .
     env_file:
       - .env.prod
+    mem_limit: 1.5g
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
     volumes:
       - media_data:/var/www/media
     depends_on:
@@ -63,7 +68,7 @@ services:
   database:
     image: postgres:15-alpine
     container_name: db
-    mem_limit: 512m
+    mem_limit: 1g
     ports:
       - "5432:5432"
     environment:
