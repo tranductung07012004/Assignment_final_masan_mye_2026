@@ -13,7 +13,7 @@ import com.app.chat.repository.ChatGroupMemberRepository;
 import com.app.chat.repository.ChatGroupRepository;
 import com.app.chat.repository.FriendRequestRepository;
 import com.app.chat.repository.UserRepository;
-import com.app.chat.service.FriendServiceInterface;
+import com.app.chat.service.FriendService;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -25,7 +25,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 @Service
-public class FriendServiceImpl implements FriendServiceInterface {
+public class FriendServiceImpl implements FriendService {
 
     private static final String STATUS_PENDING = "PENDING";
     private static final String STATUS_ACCEPTED = "ACCEPTED";

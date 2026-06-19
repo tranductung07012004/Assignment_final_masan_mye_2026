@@ -15,7 +15,7 @@ import com.app.chat.dto.SendGroupMessageRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
-public interface ChatServiceInterface {
+public interface ChatService {
 
     Page<ChatListItemResponse> searchChats(Long currentUserId, String keyword, Pageable pageable);
 

@@ -33,3 +33,6 @@ build/
 .vscode/
 .env
 .env.prod
+
+### Local dev media uploads (MEDIA_ROOT) ###
+/chat-media/

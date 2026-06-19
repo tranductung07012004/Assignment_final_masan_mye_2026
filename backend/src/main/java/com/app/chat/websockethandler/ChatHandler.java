@@ -8,8 +8,8 @@ import com.app.chat.dto.SendDirectMessageRequest;
 import com.app.chat.dto.SendGroupMessageRequest;
 import com.app.chat.exception.ApplicationException;
 import com.app.chat.listener.RedisMessageListener;
-import com.app.chat.service.ChatServiceInterface;
-import com.app.chat.service.FriendServiceInterface;
+import com.app.chat.service.ChatService;
+import com.app.chat.service.FriendService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -46,10 +46,10 @@ public class ChatHandler extends TextWebSocketHandler {
     private final RedisMessageListenerContainer listenerContainer;
     private final RedisMessageListener redisMessageListener;
     private final ObjectMapper objectMapper;
-    private final ChatServiceInterface chatService;
+    private final ChatService chatService;
     private final LocalSessionManagement localSessionManagement;
     private final WebSocketRedisService webSocketRedisService;
-    private final FriendServiceInterface friendService;
+    private final FriendService friendService;
 
     public ChatHandler(
             InstanceIdentityConfig instanceIdentityConfig,
@@ -57,10 +57,10 @@ public class ChatHandler extends TextWebSocketHandler {
             RedisMessageListenerContainer injectedListenerContainer,
             RedisMessageListener injectedRedisMessageListener,
             ObjectMapper injectedObjectMapper,
-            ChatServiceInterface injectedChatService,
+            ChatService injectedChatService,
             LocalSessionManagement injectedLocalSessionManagement,
             WebSocketRedisService injectedWebSocketRedisService,
-            FriendServiceInterface injectedFriendService
+            FriendService injectedFriendService
     ) {
         this.serverId = instanceIdentityConfig.getServerId();
         this.redisTemplate = injectedRedisTemplate;

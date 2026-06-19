@@ -4,7 +4,7 @@ import com.app.chat.dto.AddGroupMemberRequest;
 import com.app.chat.dto.ApiResponse;
 import com.app.chat.dto.CreateGroupRequest;
 import com.app.chat.dto.GroupInfoResponse;
-import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.service.ChatService;
 import com.app.chat.utils.SecurityUtil;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -20,9 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/groups")
 public class GroupController {
 
-    private final ChatServiceInterface chatService;
+    private final ChatService chatService;
 
-    public GroupController(ChatServiceInterface injectedChatService) {
+    public GroupController(ChatService injectedChatService) {
         this.chatService = injectedChatService;
     }
 

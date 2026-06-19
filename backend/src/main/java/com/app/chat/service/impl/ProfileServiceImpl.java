@@ -7,14 +7,14 @@ import com.app.chat.dto.UpdateProfileResponse;
 import com.app.chat.entity.User;
 import com.app.chat.exception.ApplicationException;
 import com.app.chat.repository.UserRepository;
-import com.app.chat.service.ProfileServiceInterface;
+import com.app.chat.service.ProfileService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import java.time.OffsetDateTime;
 import java.util.Objects;
 
 @Service
-public class ProfileServiceImpl implements ProfileServiceInterface {
+public class ProfileServiceImpl implements ProfileService {
     private final UserRepository userRepository;
     private final PasswordEncoder encoder;
 

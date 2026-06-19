@@ -2,7 +2,7 @@ package com.app.chat.controller;
 
 import com.app.chat.dto.ApiResponse;
 import com.app.chat.dto.UserSearchResponse;
-import com.app.chat.service.FriendServiceInterface;
+import com.app.chat.service.FriendService;
 import com.app.chat.utils.SecurityUtil;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/users")
 public class UserController {
 
-    private final FriendServiceInterface friendService;
+    private final FriendService friendService;
 
-    public UserController(FriendServiceInterface injectedFriendService) {
+    public UserController(FriendService injectedFriendService) {
         this.friendService = injectedFriendService;
     }
 

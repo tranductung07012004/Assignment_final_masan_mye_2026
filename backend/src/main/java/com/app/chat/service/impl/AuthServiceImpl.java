@@ -10,7 +10,7 @@ import com.app.chat.entity.User;
 import com.app.chat.exception.ApplicationException;
 import com.app.chat.repository.RefreshTokenRepository;
 import com.app.chat.repository.UserRepository;
-import com.app.chat.service.AuthServiceInterface;
+import com.app.chat.service.AuthService;
 import com.app.chat.utils.HashUtil;
 import com.app.chat.utils.JwtUtil;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -22,7 +22,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
 @Service
-public class AuthServiceImpl implements AuthServiceInterface {
+public class AuthServiceImpl implements AuthService {
     private final UserRepository userRepository;
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder encoder;

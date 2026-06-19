@@ -46,7 +46,7 @@ import { spawnSync } from 'node:child_process';
 
 const BASE_URL     = process.env.BASE_URL     || 'http://localhost';
 const WS_URL       = process.env.WS_URL       || 'ws://localhost/ws';
-const NUM_USERS    = parseInt(process.env.NUM_USERS    || '500', 10);
+const NUM_USERS    = parseInt(process.env.NUM_USERS    || '800', 10);
 const PASSWORD     = process.env.PASSWORD     || 'Test1234';
 const EMAIL_PREFIX = process.env.EMAIL_PREFIX || 'loadtest';
 const SETTLE_MS    = parseInt(process.env.SETTLE_MS    || '30000', 10);

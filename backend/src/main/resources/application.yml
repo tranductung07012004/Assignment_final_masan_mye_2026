@@ -34,6 +34,11 @@ spring:
       use-key-prefix: false
       cache-null-values: false
 
+  servlet:
+    multipart:
+      max-file-size: 30MB
+      max-request-size: 32MB
+
 
 
 jwt:
@@ -44,7 +49,9 @@ jwt:
 cookie:
   expiration: 604800 # in seconds
 
-cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME}
-  api-key: ${CLOUDINARY_API_KEY}
-  api-secret: ${CLOUDINARY_API_SECRET}
+app:
+  media:
+    # Thư mục gốc lưu file (trong Docker mount volume vào đây; local dev mặc định ./chat-media)
+    root: ${MEDIA_ROOT:./chat-media}
+    # Prefix URL public (nginx serve ở prod; vite proxy + resource handler ở dev)
+    url-prefix: ${MEDIA_URL_PREFIX:/media}

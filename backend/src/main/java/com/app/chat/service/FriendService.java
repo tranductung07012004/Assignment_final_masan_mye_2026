@@ -7,7 +7,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
-public interface FriendServiceInterface {
+public interface FriendService {
 
     Page<UserSearchResponse> searchUsers(Long currentUserId, String keyword, Pageable pageable);
 

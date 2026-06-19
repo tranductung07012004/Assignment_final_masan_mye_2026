@@ -3,7 +3,7 @@ package com.app.chat.controller;
 import com.app.chat.dto.ApiResponse;
 import com.app.chat.dto.FriendRequestResponse;
 import com.app.chat.dto.SendFriendRequestRequest;
-import com.app.chat.service.FriendServiceInterface;
+import com.app.chat.service.FriendService;
 import com.app.chat.utils.SecurityUtil;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
@@ -21,9 +21,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/friends")
 public class FriendController {
 
-    private final FriendServiceInterface friendService;
+    private final FriendService friendService;
 
-    public FriendController(FriendServiceInterface injectedFriendService) {
+    public FriendController(FriendService injectedFriendService) {
         this.friendService = injectedFriendService;
     }
 
