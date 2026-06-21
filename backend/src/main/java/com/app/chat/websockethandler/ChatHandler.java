@@ -42,6 +42,10 @@ public class ChatHandler extends TextWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(ChatHandler.class);
 
     private static final String SERVER_CHANNEL_PREFIX = "server:";
+    // Fix 1 (Cách A): group fan-out goes through ONE shared channel that every instance
+    // subscribes to, carrying the full member-id list — instead of an SMEMBERS-per-member
+    // presence lookup. Direct/presence still use the targeted server:{id} channel.
+    private static final String BROADCAST_CHANNEL = "group-broadcast";
 
     private final String serverId;
     private final StringRedisTemplate redisTemplate;
@@ -52,6 +56,7 @@ public class ChatHandler extends TextWebSocketHandler {
     private final LocalSessionManagement localSessionManagement;
     private final WebSocketRedisService webSocketRedisService;
     private final FriendService friendService;
+    private final OutboundCoalescer outboundCoalescer;
 
     public ChatHandler(
             InstanceIdentityConfig instanceIdentityConfig,
@@ -62,7 +67,8 @@ public class ChatHandler extends TextWebSocketHandler {
             ChatService injectedChatService,
             LocalSessionManagement injectedLocalSessionManagement,
             WebSocketRedisService injectedWebSocketRedisService,
-            FriendService injectedFriendService
+            FriendService injectedFriendService,
+            OutboundCoalescer injectedOutboundCoalescer
     ) {
         this.serverId = instanceIdentityConfig.getServerId();
         this.redisTemplate = injectedRedisTemplate;
@@ -73,6 +79,7 @@ public class ChatHandler extends TextWebSocketHandler {
         this.localSessionManagement = injectedLocalSessionManagement;
         this.webSocketRedisService = injectedWebSocketRedisService;
         this.friendService = injectedFriendService;
+        this.outboundCoalescer = injectedOutboundCoalescer;
     }
 
     @PostConstruct
@@ -80,6 +87,10 @@ public class ChatHandler extends TextWebSocketHandler {
         ChannelTopic topic = new ChannelTopic(SERVER_CHANNEL_PREFIX + serverId);
         listenerContainer.addMessageListener(redisMessageListener, topic);
         logger.info("Subscribed to Redis server channel: {}{}", SERVER_CHANNEL_PREFIX, serverId);
+
+        ChannelTopic broadcastTopic = new ChannelTopic(BROADCAST_CHANNEL);
+        listenerContainer.addMessageListener(redisMessageListener, broadcastTopic);
+        logger.info("Subscribed to Redis broadcast channel: {}", BROADCAST_CHANNEL);
     }
 
     @Override
@@ -216,7 +227,7 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(result.getMessage());
-            publishToUsers(result.getMemberIds(), outboundPayload);
+            publishGroupMessage(result.getMemberIds(), outboundPayload);
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
         }
@@ -363,30 +374,51 @@ public class ChatHandler extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * Fix 1 (Cách A): fan out a group message with EXACTLY ONE Redis PUBLISH, regardless of
+     * group size. Every instance is subscribed to {@link #BROADCAST_CHANNEL}; each one receives
+     * this payload (carrying all member ids) and delivers only to the members whose sessions it
+     * holds locally — no per-member SMEMBERS presence lookup. The local delivery in
+     * {@link #pushMessageToLocalWebSocketSession} already fans out to every tab (connectionId)
+     * of a user, so multi-tab behaviour is unchanged.
+     */
+    private void publishGroupMessage(List<String> memberIds, String messagePayload) {
+        if (memberIds == null || memberIds.isEmpty()) {
+            return;
+        }
+        try {
+            String wrappedPayload = objectMapper.writeValueAsString(Map.of(
+                    "targetUserIds", memberIds,
+                    "message", messagePayload
+            ));
+            redisTemplate.convertAndSend(BROADCAST_CHANNEL, wrappedPayload);
+        } catch (Exception e) {
+            logger.error("Failed to publish group message to broadcast channel", e);
+        }
+    }
+
     public void pushMessageToLocalWebSocketSession(String userId, String payload) {
         ConcurrentHashMap<String, WebSocketSession> connections = localSessionManagement.getUserConnections(userId);
         if (connections == null || connections.isEmpty()) {
-            logger.warn("This userId: {}does not have any connection online, so receiver will not receive message", userId);
+            // DEBUG, không WARN: trong group fan-out, member offline (sẽ đọc lại từ DB/unread khi
+            // reconnect) là chuyện BÌNH THƯỜNG. Log này chạy per-recipient/per-message trên đường
+            // nóng — để WARN sẽ spam hàng triệu dòng + bóp throughput (logback đồng bộ), và chính
+            // việc ghi log đó tranh CPU với flusher -> góp phần gây drop.
+            logger.debug("userId {} has no online connection on this instance; skipped (will read from DB later)", userId);
             return;
         }
 
         for (Map.Entry<String, WebSocketSession> entry : connections.entrySet()) {
             WebSocketSession session = entry.getValue();
             if (session == null || !session.isOpen()) {
-                logger.warn("The websocket session of the connectionId {} and userId {} is null or closed", entry.getKey(), userId);
+                logger.debug("Session for connectionId {} / userId {} is null or closed; skipped", entry.getKey(), userId);
                 continue;
             }
 
-            try {
-                session.sendMessage(new TextMessage(payload));
-            } catch (IOException e) {
-                logger.error(
-                        "Failed to send message to userId={}, connectionId={}",
-                        userId,
-                        entry.getKey(),
-                        e
-                );
-            }
+            // Gom thay vì gửi thẳng: §3.4 conflation + §3.5 backpressure. enqueue là thao tác
+            // queue non-blocking (không throw); việc gửi blocking + bắt SessionLimitExceededException
+            // giờ nằm trong flusher của OutboundCoalescer, nên 1 client chậm không chặn fan-out.
+            outboundCoalescer.enqueue(session, payload);
         }
     }
 }
