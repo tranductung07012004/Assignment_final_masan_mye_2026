@@ -111,6 +111,35 @@ export function useWebSocket() {
       hasConnectedRef.current = true
     }
 
+    // Xử lý 1 chat-message DTO — dùng chung cho frame lẻ lẫn từng phần tử trong BATCH.
+    const handleChatMessage = (dto: IncomingMessageDto) => {
+      const isOwn = dto.senderMemberId === currentUserIdRef.current
+      const message: ChatMessage = {
+        id: dto.id,
+        groupId: dto.groupId,
+        senderId: dto.senderMemberId,
+        senderName: dto.senderFullName ?? 'Unknown',
+        senderAvatarUrl: dto.senderAvatarUrl ?? null,
+        content: dto.deletedAt ? null : dto.content,
+        messageType: dto.messageType ?? 'TEXT',
+        sentAt: dto.createdAt,
+        isOwn,
+        isDeleted: dto.deletedAt !== null,
+      }
+      appendMessageRef.current(message)
+      updateLastMessageRef.current(dto.groupId, {
+        content: dto.content,
+        type: dto.messageType ?? 'TEXT',
+        at: dto.createdAt,
+        senderId: dto.senderMemberId,
+        senderName: dto.senderFullName,
+      })
+
+      if (!isOwn && dto.groupId !== selectedGroupIdRef.current) {
+        incrementUnreadRef.current(dto.groupId)
+      }
+    }
+
     ws.onmessage = (event: MessageEvent<string>) => {
       try {
         const data = JSON.parse(event.data) as Record<string, unknown>
@@ -139,33 +168,21 @@ export function useWebSocket() {
           return
         }
 
-        // no type field → chat message
-        const dto = data as IncomingMessageDto
-        const isOwn = dto.senderMemberId === currentUserIdRef.current
-        const message: ChatMessage = {
-          id: dto.id,
-          groupId: dto.groupId,
-          senderId: dto.senderMemberId,
-          senderName: dto.senderFullName ?? 'Unknown',
-          senderAvatarUrl: dto.senderAvatarUrl ?? null,
-          content: dto.deletedAt ? null : dto.content,
-          messageType: dto.messageType ?? 'TEXT',
-          sentAt: dto.createdAt,
-          isOwn,
-          isDeleted: dto.deletedAt !== null,
+        // BATCH (conflation): server gom nhiều tin của 1 group/cửa sổ thành 1 frame
+        // {type:'BATCH', messages:[...]} (xem OutboundFrames.batch / GroupBroadcaster ở backend).
+        // Mỗi phần tử trong messages là 1 chat-message DTO y như frame lẻ -> xử lý từng cái.
+        if (data.type === 'BATCH') {
+          const messages = data.messages
+          if (Array.isArray(messages)) {
+            for (const item of messages) {
+              handleChatMessage(item as IncomingMessageDto)
+            }
+          }
+          return
         }
-        appendMessageRef.current(message)
-        updateLastMessageRef.current(dto.groupId, {
-          content: dto.content,
-          type: dto.messageType ?? 'TEXT',
-          at: dto.createdAt,
-          senderId: dto.senderMemberId,
-          senderName: dto.senderFullName,
-        })
 
-        if (!isOwn && dto.groupId !== selectedGroupIdRef.current) {
-          incrementUnreadRef.current(dto.groupId)
-        }
+        // no type field → chat message
+        handleChatMessage(data as IncomingMessageDto)
       } catch {
         // malformed payload — ignore
       }

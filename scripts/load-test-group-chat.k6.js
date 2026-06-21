@@ -6,22 +6,29 @@
  *   nó tự nghẽn (broken pipe), tức là đo chính cái load generator chứ không phải
  *   backend. k6 chạy goroutine (Go) nên gánh vài nghìn WS thật sự song song.
  *
- * Phân chia việc:
- *   - File NÀY: register + login N user, tạo group, mở N WS, bắn tin, đếm tin
- *     nhận được + latency. (k6 không có OS access nên KHÔNG kiểm tra DB ở đây.)
- *   - Đếm tin trong Postgres: chạy `node scripts/check-db-loadtest.mjs` SAU khi
- *     k6 xong (nó tự dò group LOADTEST mới nhất, hoặc nhận GROUP_ID=...).
+ * Phân chia việc (3 bước):
+ *   1. CHUẨN BỊ: `node scripts/loadtest-prepare.mjs` — register + login N user + tạo group,
+ *      ghi token ra scripts/.loadtest-data.json. Tách khỏi k6 để token nạp qua SharedArray
+ *      (1 bản chung, không copy per-VU) thay vì setup-data O(N²) -> giảm RAM k6 mạnh ở N lớn.
+ *   2. File NÀY: đọc token (SharedArray) + mở N WS + bắn tin + đếm tin nhận/latency.
+ *      (k6 không có OS access nên KHÔNG login/ghi file/kiểm tra DB ở đây.)
+ *   3. Đếm tin trong Postgres: `node scripts/check-db-loadtest.mjs` SAU khi k6 xong
+ *      (tự dò group LOADTEST mới nhất, hoặc nhận GROUP_ID=...).
  *
  * Cài k6 (chọn 1):
  *   brew install k6
  *   # hoặc Docker (mount thư mục scripts để chạy file):
  *   docker run --rm -i --network host -v "$PWD/scripts:/s" grafana/k6 run /s/load-test-group-chat.k6.js
  *
- * Chạy (mặc định = qua nginx :80, profile prod):
- *   k6 run scripts/load-test-group-chat.k6.js
- *   NUM_USERS=1000 k6 run scripts/load-test-group-chat.k6.js
+ * Chạy CẢ 3 BƯỚC trong 1 lệnh (khuyến nghị): scripts/run-loadtest.sh
+ *   NUM_USERS=5000 SETTLE_MS=90000 scripts/run-loadtest.sh
+ *
+ * Hoặc chạy tay (mặc định = qua nginx :80, profile prod) — NHỚ prepare TRƯỚC (token sống ~15p):
+ *   node scripts/loadtest-prepare.mjs && k6 run scripts/load-test-group-chat.k6.js
+ *   NUM_USERS=1000 node scripts/loadtest-prepare.mjs && NUM_USERS=1000 k6 run scripts/load-test-group-chat.k6.js
  *
  *   # Dev (backend trực tiếp :8080, không qua nginx):
+ *   BASE_URL=http://localhost:8080 node scripts/loadtest-prepare.mjs
  *   BASE_URL=http://localhost:8080 WS_URL=ws://localhost:8080/ws k6 run scripts/load-test-group-chat.k6.js
  *
  * Cấu hình qua biến môi trường (đều có default):
@@ -50,15 +57,15 @@
  * client kỳ vọng nhận = (số user bắn được) * MSG_PER_USER.
  */
 
-import http from 'k6/http';
-import encoding from 'k6/encoding';
 import { WebSocket } from 'k6/websockets';
 import { Counter, Trend, Rate } from 'k6/metrics';
+import { SharedArray } from 'k6/data';
 // setTimeout/clearTimeout là global trong k6 (không cần import).
+// http/encoding KHÔNG còn dùng: login + tạo group đã chuyển sang loadtest-prepare.mjs (Node).
 
 const BASE_URL         = __ENV.BASE_URL         || 'http://localhost';
 const WS_URL           = __ENV.WS_URL           || 'ws://localhost/ws';
-const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '3000', 10);
+const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '4000', 10);
 const PASSWORD         = __ENV.PASSWORD         || 'Test1234';
 const EMAIL_PREFIX     = __ENV.EMAIL_PREFIX     || 'loadtest';
 const MSG_PER_USER     = parseInt(__ENV.MSG_PER_USER     || '1', 10);
@@ -77,7 +84,7 @@ const LATENCY_SAMPLE_CAP  = parseInt(__ENV.LATENCY_SAMPLE_CAP || '200000', 10);
 // Mặc định 30s (trước là 15s): mở 1000–1500 WS cùng lúc cần đủ thời gian để
 // MỌI VU open xong TRƯỚC mốc bắn. Nếu còn ws_connect_errors > 0 ở N lớn -> tăng tiếp.
 const CONNECT_GRACE_MS = parseInt(__ENV.CONNECT_GRACE_MS || '30000', 10);
-const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '30000', 10);
+const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '15000', 10);
 
 // ── CHẾ ĐỘ BẮN ───────────────────────────────────────────────────────────────
 // SEND_BATCH = 0 (mặc định): tất cả VU bắn ĐỒNG LOẠT tại fireAtEpoch — thundering herd,
@@ -85,7 +92,7 @@ const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '30000', 10);
 // SEND_BATCH > 0: bắn so le theo nhóm — mỗi nhóm SEND_BATCH user bắn cách nhau SEND_GAP_MS.
 //   Giống tải thực tế (tin rải theo thời gian); chọn SEND_BATCH ≤ cap coalescer để inbound/window
 //   không vượt drain -> đo sustained throughput, tách "chậm" khỏi "mất do spike".
-const SEND_BATCH  = parseInt(__ENV.SEND_BATCH  || '0',  10);
+const SEND_BATCH  = parseInt(__ENV.SEND_BATCH  || '500',  10);
 const SEND_GAP_MS = parseInt(__ENV.SEND_GAP_MS || '100', 10);
 
 // maxDuration phải BAO trọn vòng đời 1 VU = open + CONNECT_GRACE + SETTLE, nếu không
@@ -112,6 +119,22 @@ const recvPerClient   = new Trend('recv_per_client');
 const fullyDelivered  = new Rate('fully_delivered');
 const wsConnectErrors = new Counter('ws_connect_errors');
 
+// ── TOKEN nạp qua SharedArray (đây là đòn giảm RAM chính) ────────────────────
+// loadtest-prepare.mjs (Node) login + tạo group TRƯỚC, ghi scripts/.loadtest-data.json
+// = { groupId, tokens }. SharedArray giữ mảng token 1 BẢN DUY NHẤT, chia sẻ read-only cho
+// MỌI VU (mỗi VU chỉ đọc đúng phần tử của mình) -> tránh việc k6 COPY setup-data vào từng VU,
+// vốn là heap O(N²) (~8GB token ở 5000 user, là phần lớn của 17GB). open() chỉ chạy ở
+// init-context; loader mỗi SharedArray chạy ĐÚNG 1 lần toàn cục (không phải mỗi VU).
+const DATA_FILE = './.loadtest-data.json';
+const TOKENS = new SharedArray('loadtest-tokens', function () {
+  try { return JSON.parse(open(DATA_FILE)).tokens; }
+  catch (_) { return []; }            // file chưa có -> setup() báo lỗi kèm hướng dẫn
+});
+const GROUP_ID = new SharedArray('loadtest-meta', function () {
+  try { return [JSON.parse(open(DATA_FILE)).groupId]; }
+  catch (_) { return [null]; }
+})[0];
+
 export const options = {
   // setup() register + login TẤT CẢ user (BCrypt server-side). Ở N lớn + DB lạnh,
   // việc này dễ vượt mốc mặc định 60s -> cả test bị abort trong setup. Nới rộng.
@@ -129,100 +152,45 @@ export const options = {
   },
   summaryTrendStats: ['avg', 'min', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],
   thresholds: {
-    // Tune theo nhu cầu; mặc định coi >=99% nhận đủ và p95 latency < 3s là đạt.
+    // SLO đã chốt (plan §10, quyết định #3): "giao HẾT trong 5 giây".
+    //   - fully_delivered rate>0.99: guaranteed — nhắm 100% khi cho đủ SETTLE_MS.
+    //   - msg_latency p95 VÀ max < 5000ms: "hết trong 5s" nghĩa là cả ĐUÔI cũng phải < 5s,
+    //     nên ràng cả max (không chỉ p95) — đây là tiêu chí pass/fail chính của Pha 1.
     fully_delivered: ['rate>0.99'],
-    msg_latency: ['p(95)<3000'],
+    msg_latency: ['p(95)<5000', 'max<5000'],
     ws_connect_errors: [`count<${Math.ceil(NUM_USERS * 0.02)}`], // <2% conn lỗi
   },
 };
 
-/** Giải mã "sub" (userId) trong payload JWT. Không verify chữ ký. */
-function decodeJwtSub(jwt) {
-  const part = jwt.split('.')[1];
-  const json = encoding.b64decode(part, 'rawurl', 's'); // base64url -> string
-  return JSON.parse(json).sub;
-}
-
-function chunk(arr, n) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-  return out;
-}
-
-// ---- setup: chạy 1 lần, chuẩn bị user + group, trả data cho mọi VU ----
+// ---- setup: chạy 1 lần. KHÔNG login ở đây nữa (đã làm ở loadtest-prepare.mjs) — chỉ kiểm
+// tra token đã chuẩn bị (đọc qua SharedArray) rồi tính các mốc thời gian + sample-rate. ----
 export function setup() {
-  const jsonHeaders = { headers: { 'Content-Type': 'application/json' } };
-
-  // 1) Register (idempotent) — bỏ qua mọi lỗi (user đã tồn tại -> vẫn login được).
-  const regReqs = [];
-  for (let i = 0; i < NUM_USERS; i++) {
-    regReqs.push({
-      method: 'POST',
-      url: `${BASE_URL}/api/auth/register`,
-      body: JSON.stringify({ email: emailOf(i), fullName: `Load Test ${i}`, password: PASSWORD }),
-      params: jsonHeaders,
-    });
-  }
-  for (const c of chunk(regReqs, 50)) http.batch(c);
-
-  // 2) Login lấy JWT cho từng user.
-  const loginReqs = [];
-  for (let i = 0; i < NUM_USERS; i++) {
-    loginReqs.push({
-      method: 'POST',
-      url: `${BASE_URL}/api/auth/login`,
-      body: JSON.stringify({ email: emailOf(i), password: PASSWORD, deviceId: deviceOf(i) }),
-      params: jsonHeaders,
-    });
+  if (!TOKENS.length) {
+    throw new Error(
+      `Không đọc được token từ scripts/${DATA_FILE}. Chạy bước CHUẨN BỊ trước (login + tạo group):\n` +
+      `  NUM_USERS=${NUM_USERS} BASE_URL=${BASE_URL} node scripts/loadtest-prepare.mjs`,
+    );
   }
 
-  const users = new Array(NUM_USERS).fill(null);
-  let idx = 0;
-  for (const c of chunk(loginReqs, 50)) {
-    const resps = http.batch(c);
-    for (const r of resps) {
-      const i = idx++;
-      if (r.status === 201) {
-        try {
-          const token = r.json('data'); // token là string ở field data
-          if (token) {
-            users[i] = { idx: i, userId: Number(decodeJwtSub(token)), token, deviceId: deviceOf(i), connectionId: connOf(i) };
-          }
-        } catch (_) { /* parse fail -> để null */ }
-      }
-    }
+  let validCount = 0;
+  for (let i = 0; i < TOKENS.length; i++) if (TOKENS[i]) validCount++;
+  if (validCount < 2) {
+    throw new Error(`Chỉ có ${validCount} token hợp lệ trong ${DATA_FILE} — cần >= 2. Chạy lại loadtest-prepare.mjs.`);
   }
 
-  const valid = users.filter(Boolean);
-  if (valid.length < 2) {
-    throw new Error(`Chỉ login được ${valid.length}/${NUM_USERS} user — cần >= 2 để test.`);
-  }
-
-  // 3) User đầu tiên tạo group chứa tất cả.
-  const owner = valid[0];
-  const memberIds = valid.slice(1).map((u) => u.userId);
-  const created = http.post(
-    `${BASE_URL}/api/groups`,
-    JSON.stringify({ title: `LoadTest Group ${Date.now()}`, memberIds }),
-    { headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${owner.token}` } },
-  );
-  if (created.status !== 201) {
-    throw new Error(`Tạo group thất bại: status ${created.status} ${created.body}`);
-  }
-  const groupId = created.json('data.groupId');
-
-  const expectedSent = valid.length * MSG_PER_USER;
+  const groupId = GROUP_ID;
+  const expectedSent = validCount * MSG_PER_USER;
   // Mốc bắn chung (wall-clock): mọi VU canh đúng thời điểm này -> bắn gần đồng thời,
   // bất kể VU nào open sớm/muộn (miễn open trước mốc).
   const fireAtEpoch = Date.now() + CONNECT_GRACE_MS;
 
   // Khi bắn so le: offset lớn nhất = nhóm cuối cùng. Dùng để mọi VU đóng SAU khi
   // người bắn cuối cùng + drain xong (closeDelay tính theo mốc này, không theo mốc của riêng VU).
-  const maxFireOffsetMs = SEND_BATCH > 0 ? Math.floor((valid.length - 1) / SEND_BATCH) * SEND_GAP_MS : 0;
+  const maxFireOffsetMs = SEND_BATCH > 0 ? Math.floor((validCount - 1) / SEND_BATCH) * SEND_GAP_MS : 0;
 
   // Tổng tin mọi client kỳ vọng nhận = (số user) × (tin gửi đi) = n² ở group đầy đủ.
   // Tự suy sample-rate để giữ tổng mẫu latency ≈ LATENCY_SAMPLE_CAP (trừ khi ép cứng qua env).
-  const expectedReceived = valid.length * expectedSent;
+  const expectedReceived = validCount * expectedSent;
   let latencySampleRate;
   if (LATENCY_SAMPLE_RATE != null && Number.isFinite(LATENCY_SAMPLE_RATE)) {
     latencySampleRate = Math.min(1, Math.max(0, LATENCY_SAMPLE_RATE));
@@ -230,27 +198,25 @@ export function setup() {
     latencySampleRate = expectedReceived > 0 ? Math.min(1, LATENCY_SAMPLE_CAP / expectedReceived) : 1;
   }
 
-  console.log(`[setup] login OK ${valid.length}/${NUM_USERS} | groupId=${groupId} | expectedSent=${expectedSent}`);
+  console.log(`[setup] token sẵn sàng ${validCount}/${NUM_USERS} | groupId=${groupId} | expectedSent=${expectedSent}`);
   console.log(`[setup] expectedReceived≈${expectedReceived} | latencySampleRate=${latencySampleRate.toFixed(4)} (≈${Math.round(expectedReceived * latencySampleRate)} mẫu latency)`);
   console.log(SEND_BATCH > 0
     ? `[setup] SO LE: ${SEND_BATCH} user/nhóm cách ${SEND_GAP_MS}ms, trải ${maxFireOffsetMs}ms`
-    : `[setup] ĐỒNG LOẠT: tất cả ${valid.length} user bắn cùng lúc (thundering herd)`);
+    : `[setup] ĐỒNG LOẠT: tất cả ${validCount} user bắn cùng lúc (thundering herd)`);
   console.log(`[setup] >>> Sau khi k6 xong, đếm DB:  GROUP_ID=${groupId} node scripts/check-db-loadtest.mjs  <<<`);
 
-  // RAM: setup() return được k6 COPY vào TỪNG VU. Trả mảng object đầy đủ (token+deviceId+
-  // connectionId+idx+userId) => mỗi VU giữ cả 2000 phần tử dù chỉ dùng 1 -> O(N²) heap (2000×2000).
-  // deviceId/connectionId/idx đều suy ra được từ __VU, userId không dùng trong VU -> chỉ trả TOKEN
-  // (string). Giữ nguyên vị trí null (login fail) để index __VU-1 vẫn khớp user gốc.
-  const tokens = users.map((u) => (u ? u.token : null));
-  return { tokens, groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, latencySampleRate, maxFireOffsetMs };
+  // RAM: setup() return được k6 COPY vào TỪNG VU -> chỉ trả SCALAR (groupId + mốc thời gian).
+  // Token KHÔNG đi qua setup-data nữa; VU đọc thẳng từ SharedArray TOKENS (1 bản chung) — đây
+  // là chỗ bỏ heap O(N²) từng làm k6 ngốn ~17GB ở 5000 user.
+  return { groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, latencySampleRate, maxFireOffsetMs };
 }
 
 export default function (data) {
-  const token = data.tokens[__VU - 1];
-  if (!token) return; // user này login fail ở setup -> bỏ qua
+  // Token đọc THẲNG từ SharedArray (1 bản chung) thay vì qua setup-data -> không copy per-VU.
+  const token = TOKENS[__VU - 1];
+  if (!token) return; // user này login fail ở prepare -> bỏ qua
 
-  // Suy lại từ __VU thay vì nhận qua setup data (xem ghi chú RAM ở setup): idx === __VU-1,
-  // deviceId/connectionId theo cùng công thức như khi login.
+  // Suy lại từ __VU: idx === __VU-1, deviceId/connectionId theo cùng công thức như khi prepare login.
   const idx = __VU - 1;
   const deviceId = deviceOf(idx);
   const connectionId = connOf(idx);

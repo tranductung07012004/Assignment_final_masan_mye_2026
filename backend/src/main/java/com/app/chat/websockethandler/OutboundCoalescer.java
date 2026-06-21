@@ -39,7 +39,7 @@ public class OutboundCoalescer {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboundCoalescer.class);
 
-    @Value("${ws.coalescer.flush-ms:50}")
+    @Value("${ws.coalescer.flush-ms:100}")
     private int flushIntervalMs;             // cửa sổ gom (latency trần thêm ~chừng này ms)
 
     @Value("${ws.coalescer.max-pending:512}")
@@ -130,7 +130,7 @@ public class OutboundCoalescer {
                 continue;
             }
             try {
-                session.sendMessage(new TextMessage(buildFrame(batch)));
+                session.sendMessage(new TextMessage(OutboundFrames.batch(batch)));
             } catch (Exception e) {
                 // Thường là race "session has been closed" (đóng giữa isOpen() và send) — KHÔNG
                 // phải lỗi; chỉ cần bỏ session. DEBUG + không in stacktrace để khỏi spam khi N lớn.
@@ -138,26 +138,6 @@ public class OutboundCoalescer {
                 shard.remove(session);
             }
         }
-    }
-
-    /**
-     * 1 tin -> gửi raw y như cũ (1-1 / presence KHÔNG đổi format).
-     * Nhiều tin -> bọc bằng cách NỐI chuỗi (mỗi payload đã là JSON hợp lệ) => tránh parse+serialize lại N lần.
-     */
-    private String buildFrame(List<String> batch) {
-        if (batch.size() == 1) {
-            return batch.get(0);
-        }
-        StringBuilder sb = new StringBuilder(batch.size() * 64);
-        sb.append("{\"type\":\"BATCH\",\"messages\":[");
-        for (int i = 0; i < batch.size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(batch.get(i));
-        }
-        sb.append("]}");
-        return sb.toString();
     }
 
     @PreDestroy

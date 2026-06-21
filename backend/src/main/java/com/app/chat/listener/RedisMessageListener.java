@@ -1,6 +1,7 @@
 package com.app.chat.listener;
 
 import com.app.chat.websockethandler.ChatHandler;
+import com.app.chat.websockethandler.GroupBroadcaster;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -11,6 +12,8 @@ import org.springframework.data.redis.connection.MessageListener;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 @Component
 public class RedisMessageListener implements MessageListener {
@@ -20,10 +23,14 @@ public class RedisMessageListener implements MessageListener {
     private static final String BROADCAST_CHANNEL = "group-broadcast";
 
     private final ChatHandler chatHandler;
+    private final GroupBroadcaster groupBroadcaster;
     private final ObjectMapper objectMapper;
 
-    public RedisMessageListener(@Lazy ChatHandler chatHandler, ObjectMapper objectMapper) {
+    public RedisMessageListener(@Lazy ChatHandler chatHandler,
+                                GroupBroadcaster groupBroadcaster,
+                                ObjectMapper objectMapper) {
         this.chatHandler = chatHandler;
+        this.groupBroadcaster = groupBroadcaster;
         this.objectMapper = objectMapper;
     }
 
@@ -43,7 +50,22 @@ public class RedisMessageListener implements MessageListener {
             JsonNode node = objectMapper.readTree(wrappedJson);
             String actualPayload = node.get("message").asText();
             JsonNode targetUserIds = node.get("targetUserIds");
-            if (targetUserIds != null && targetUserIds.isArray()) {
+            if (targetUserIds == null || !targetUserIds.isArray()) {
+                return;
+            }
+
+            if (channel.equals(BROADCAST_CHANNEL)) {
+                // Group fan-out (Phase 1): KHÔNG loop N member để enqueue per-session. Nối nguyên
+                // member list + payload vào buffer của group (O(1)); GroupBroadcaster dựng frame
+                // 1 lần/group/cửa sổ rồi ghi cùng buffer tới mọi session local (build-once).
+                long groupId = node.get("groupId").asLong();
+                List<String> ids = new ArrayList<>(targetUserIds.size());
+                for (JsonNode id : targetUserIds) {
+                    ids.add(id.asText());
+                }
+                groupBroadcaster.append(groupId, ids, actualPayload);
+            } else {
+                // server:{id} = direct / presence / cross-group: vẫn đi qua coalescer per-session.
                 for (JsonNode id : targetUserIds) {
                     chatHandler.pushMessageToLocalWebSocketSession(id.asText(), actualPayload);
                 }

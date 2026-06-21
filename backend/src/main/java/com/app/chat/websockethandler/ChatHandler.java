@@ -227,7 +227,7 @@ public class ChatHandler extends TextWebSocketHandler {
                     request
             );
             String outboundPayload = this.objectMapper.writeValueAsString(result.getMessage());
-            publishGroupMessage(result.getMemberIds(), outboundPayload);
+            publishGroupMessage(request.getGroupId(), result.getMemberIds(), outboundPayload);
         } catch (Exception e) {
             logger.error("Failed to send group message from senderId: {}", senderId, e);
         }
@@ -377,17 +377,22 @@ public class ChatHandler extends TextWebSocketHandler {
     /**
      * Fix 1 (Cách A): fan out a group message with EXACTLY ONE Redis PUBLISH, regardless of
      * group size. Every instance is subscribed to {@link #BROADCAST_CHANNEL}; each one receives
-     * this payload (carrying all member ids) and delivers only to the members whose sessions it
-     * holds locally — no per-member SMEMBERS presence lookup. The local delivery in
-     * {@link #pushMessageToLocalWebSocketSession} already fans out to every tab (connectionId)
-     * of a user, so multi-tab behaviour is unchanged.
+     * this payload (carrying all member ids + groupId) and delivers only to the members whose
+     * sessions it holds locally — no per-member SMEMBERS presence lookup.
+     * <p>
+     * Phase 1 (shared-buffer broadcast): the listener no longer loops members to enqueue
+     * per-session; it appends to {@link GroupBroadcaster}, which builds the frame ONCE per
+     * group/window and writes the same buffer to every local session (build-once, write-to-many).
      */
-    private void publishGroupMessage(List<String> memberIds, String messagePayload) {
+    private void publishGroupMessage(long groupId, List<String> memberIds, String messagePayload) {
         if (memberIds == null || memberIds.isEmpty()) {
             return;
         }
         try {
+            // groupId đi kèm để mỗi instance route payload vào đúng buffer của group trong
+            // GroupBroadcaster (shard theo groupId -> giữ thứ tự + build-once/group/cửa sổ).
             String wrappedPayload = objectMapper.writeValueAsString(Map.of(
+                    "groupId", groupId,
                     "targetUserIds", memberIds,
                     "message", messagePayload
             ));
