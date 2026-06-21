@@ -58,7 +58,7 @@ import { Counter, Trend, Rate } from 'k6/metrics';
 
 const BASE_URL         = __ENV.BASE_URL         || 'http://localhost';
 const WS_URL           = __ENV.WS_URL           || 'ws://localhost/ws';
-const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '2000', 10);
+const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '3000', 10);
 const PASSWORD         = __ENV.PASSWORD         || 'Test1234';
 const EMAIL_PREFIX     = __ENV.EMAIL_PREFIX     || 'loadtest';
 const MSG_PER_USER     = parseInt(__ENV.MSG_PER_USER     || '1', 10);
@@ -77,7 +77,16 @@ const LATENCY_SAMPLE_CAP  = parseInt(__ENV.LATENCY_SAMPLE_CAP || '200000', 10);
 // Mặc định 30s (trước là 15s): mở 1000–1500 WS cùng lúc cần đủ thời gian để
 // MỌI VU open xong TRƯỚC mốc bắn. Nếu còn ws_connect_errors > 0 ở N lớn -> tăng tiếp.
 const CONNECT_GRACE_MS = parseInt(__ENV.CONNECT_GRACE_MS || '30000', 10);
-const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '50000', 10);
+const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '30000', 10);
+
+// ── CHẾ ĐỘ BẮN ───────────────────────────────────────────────────────────────
+// SEND_BATCH = 0 (mặc định): tất cả VU bắn ĐỒNG LOẠT tại fireAtEpoch — thundering herd,
+//   kịch bản TỆ NHẤT (đo trần hấp thụ spike). Drop coalescer dễ xảy ra ở đây và là BÌNH THƯỜNG.
+// SEND_BATCH > 0: bắn so le theo nhóm — mỗi nhóm SEND_BATCH user bắn cách nhau SEND_GAP_MS.
+//   Giống tải thực tế (tin rải theo thời gian); chọn SEND_BATCH ≤ cap coalescer để inbound/window
+//   không vượt drain -> đo sustained throughput, tách "chậm" khỏi "mất do spike".
+const SEND_BATCH  = parseInt(__ENV.SEND_BATCH  || '0',  10);
+const SEND_GAP_MS = parseInt(__ENV.SEND_GAP_MS || '100', 10);
 
 // maxDuration phải BAO trọn vòng đời 1 VU = open + CONNECT_GRACE + SETTLE, nếu không
 // k6 sẽ giết VU (gracefulStop) TRƯỚC khi event 'close' kịp ghi recv_per_client/
@@ -86,6 +95,7 @@ const OPEN_MARGIN_MS      = 60000;
 const DERIVED_MAX_DUR_SEC = Math.ceil((CONNECT_GRACE_MS + SETTLE_MS + OPEN_MARGIN_MS) / 1000);
 
 const MARKER = 'LOADTEST';
+const MARK   = MARKER + '|';   // token đếm trong raw frame (content = "LOADTEST|idx|seq|ts")
 
 const emailOf  = (i) => `${EMAIL_PREFIX}${i}@example.com`;
 const deviceOf = (i) => `loadtest-device-${i}`;
@@ -206,6 +216,10 @@ export function setup() {
   // bất kể VU nào open sớm/muộn (miễn open trước mốc).
   const fireAtEpoch = Date.now() + CONNECT_GRACE_MS;
 
+  // Khi bắn so le: offset lớn nhất = nhóm cuối cùng. Dùng để mọi VU đóng SAU khi
+  // người bắn cuối cùng + drain xong (closeDelay tính theo mốc này, không theo mốc của riêng VU).
+  const maxFireOffsetMs = SEND_BATCH > 0 ? Math.floor((valid.length - 1) / SEND_BATCH) * SEND_GAP_MS : 0;
+
   // Tổng tin mọi client kỳ vọng nhận = (số user) × (tin gửi đi) = n² ở group đầy đủ.
   // Tự suy sample-rate để giữ tổng mẫu latency ≈ LATENCY_SAMPLE_CAP (trừ khi ép cứng qua env).
   const expectedReceived = valid.length * expectedSent;
@@ -218,23 +232,49 @@ export function setup() {
 
   console.log(`[setup] login OK ${valid.length}/${NUM_USERS} | groupId=${groupId} | expectedSent=${expectedSent}`);
   console.log(`[setup] expectedReceived≈${expectedReceived} | latencySampleRate=${latencySampleRate.toFixed(4)} (≈${Math.round(expectedReceived * latencySampleRate)} mẫu latency)`);
+  console.log(SEND_BATCH > 0
+    ? `[setup] SO LE: ${SEND_BATCH} user/nhóm cách ${SEND_GAP_MS}ms, trải ${maxFireOffsetMs}ms`
+    : `[setup] ĐỒNG LOẠT: tất cả ${valid.length} user bắn cùng lúc (thundering herd)`);
   console.log(`[setup] >>> Sau khi k6 xong, đếm DB:  GROUP_ID=${groupId} node scripts/check-db-loadtest.mjs  <<<`);
 
-  return { users, groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, latencySampleRate };
+  // RAM: setup() return được k6 COPY vào TỪNG VU. Trả mảng object đầy đủ (token+deviceId+
+  // connectionId+idx+userId) => mỗi VU giữ cả 2000 phần tử dù chỉ dùng 1 -> O(N²) heap (2000×2000).
+  // deviceId/connectionId/idx đều suy ra được từ __VU, userId không dùng trong VU -> chỉ trả TOKEN
+  // (string). Giữ nguyên vị trí null (login fail) để index __VU-1 vẫn khớp user gốc.
+  const tokens = users.map((u) => (u ? u.token : null));
+  return { tokens, groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, latencySampleRate, maxFireOffsetMs };
 }
 
 export default function (data) {
-  const u = data.users[__VU - 1];
-  if (!u) return; // user này login fail ở setup -> bỏ qua
+  const token = data.tokens[__VU - 1];
+  if (!token) return; // user này login fail ở setup -> bỏ qua
+
+  // Suy lại từ __VU thay vì nhận qua setup data (xem ghi chú RAM ở setup): idx === __VU-1,
+  // deviceId/connectionId theo cùng công thức như khi login.
+  const idx = __VU - 1;
+  const deviceId = deviceOf(idx);
+  const connectionId = connOf(idx);
 
   const groupId = data.groupId;
-  const url = `${WS_URL}?token=${encodeURIComponent(u.token)}&deviceId=${encodeURIComponent(u.deviceId)}`
-    + `&connectionId=${encodeURIComponent(u.connectionId)}`;
+  const url = `${WS_URL}?token=${encodeURIComponent(token)}&deviceId=${encodeURIComponent(deviceId)}`
+    + `&connectionId=${encodeURIComponent(connectionId)}`;
 
   const latencySampleRate = data.latencySampleRate ?? 1;
+  // Capture ở scope này: handler 'message' shadow biến `data` (= ev.data), nên không đọc được
+  // data.expectedSent bên trong nó. Dùng biến đã capture cho việc đóng-sớm-khi-đủ.
+  const expectedSent = data.expectedSent;
   let received = 0;
   let opened = false;
+  let closeTimer = null;
+  let closed = false;
   const ws = new WebSocket(url);
+
+  const closeNow = () => {
+    if (closed) return;
+    closed = true;
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    try { ws.close(); } catch (_) { /* ignore */ }
+  };
 
   // Watchdog: không open được trong 15s -> tính là lỗi connect và đóng.
   const connectTimer = setTimeout(() => {
@@ -249,41 +289,64 @@ export default function (data) {
     clearTimeout(connectTimer);
 
     const now = Date.now();
-    const fireDelay  = Math.max(0, data.fireAtEpoch - now);
-    const closeDelay = Math.max(1000, data.fireAtEpoch + data.settleMs - now);
+    // So le: VU bắn trễ theo nhóm của nó (idx / SEND_BATCH). SEND_BATCH=0 -> offset 0 = đồng loạt.
+    const fireOffset = SEND_BATCH > 0 ? Math.floor(idx / SEND_BATCH) * SEND_GAP_MS : 0;
+    const fireDelay  = Math.max(0, data.fireAtEpoch + fireOffset - now);
+    // Đóng SAU người bắn cuối cùng (fireAtEpoch + maxFireOffset) + settle, để VU bắn sớm không
+    // đóng trước khi nhận hết tin của những người bắn muộn.
+    const closeDelay = Math.max(1000, data.fireAtEpoch + (data.maxFireOffsetMs || 0) + data.settleMs - now);
 
-    // Bắn đồng loạt tại fireAtEpoch.
+    // Bắn tại mốc của VU (đồng loạt nếu SEND_BATCH=0, so le nếu >0).
     setTimeout(() => {
       for (let seq = 0; seq < MSG_PER_USER; seq++) {
         try {
           ws.send(JSON.stringify({
             groupId,
             messageType: 'TEXT',
-            content: `${MARKER}|${u.idx}|${seq}|${Date.now()}`,
+            content: `${MARKER}|${idx}|${seq}|${Date.now()}`,
           }));
           msgsSent.add(1);
         } catch (_) { /* socket đã đóng */ }
       }
     }, fireDelay);
 
-    // Chờ tin về xong thì đóng.
-    setTimeout(() => { try { ws.close(); } catch (_) { /* ignore */ } }, closeDelay);
+    // Fallback: đóng theo wall-clock nếu KHÔNG nhận đủ trong cửa sổ settle (cap timeout).
+    // Trường hợp đủ tin sẽ đóng sớm hơn ở handler 'message' (closeNow) -> bỏ artifact "thiếu 1 tin chót".
+    closeTimer = setTimeout(closeNow, closeDelay);
   });
 
+  // Đếm tin bằng QUÉT CHUỖI, KHÔNG JSON.parse — đây là cách giảm RAM/GC ở client:
+  // với BATCH (§3.4 conflation) mỗi frame chứa tới ~128 tin; JSON.parse sẽ dựng object graph
+  // cho hàng TRIỆU tin -> peak RAM + GC churn lớn. Thay vào đó chỉ đếm số lần "LOADTEST|"
+  // xuất hiện trong raw frame (mỗi tin loadtest có content bắt đầu bằng marker này), và chỉ
+  // trích 1 timestamp/frame khi trúng mẫu latency. Hoạt động cho cả frame lẻ lẫn BATCH.
   ws.addEventListener('message', (ev) => {
-    let msg;
-    try { msg = JSON.parse(ev.data); } catch (_) { return; }
-    // Chỉ đếm tin group đúng loadtest (bỏ UNREAD_SNAPSHOT, PRESENCE, READ_SYNC...).
-    if (msg.groupId !== groupId || typeof msg.content !== 'string') return;
-    if (!msg.content.startsWith(MARKER)) return;
+    const data = ev.data;
+    if (typeof data !== 'string') return;
+    const first = data.indexOf(MARK);
+    if (first === -1) return;            // không phải tin loadtest (UNREAD_SNAPSHOT/PRESENCE...) -> bỏ, KHÔNG parse
 
-    // Delivery đếm ĐỦ mọi tin; chỉ latency mới lấy mẫu để khỏi giữ hàng triệu sample trong RAM.
-    received += 1;
-    msgsReceived.add(1);
-    const sentAt = Number(msg.content.split('|')[3]);
-    if (Number.isFinite(sentAt) && (latencySampleRate >= 1 || Math.random() < latencySampleRate)) {
-      msgLatency.add(Date.now() - sentAt);
-      latencySamples.add(1);
+    let n = 0;
+    for (let idx = first; idx !== -1; idx = data.indexOf(MARK, idx + MARK.length)) n++;
+    received += n;
+    msgsReceived.add(n);
+
+    // Đóng NGAY khi đã nhận đủ -> tránh artifact wall-clock cắt mất tin bắn cuối cùng.
+    if (received >= expectedSent) {
+      closeNow();
+      return;
+    }
+
+    // Latency lấy mẫu Ở MỨC FRAME (1 timestamp/frame khi trúng mẫu) -> ít sample, ít RAM hơn nữa.
+    if (latencySampleRate >= 1 || Math.random() < latencySampleRate) {
+      const end = data.indexOf('"', first);   // content nằm trong cặp "..."; cắt tới dấu " kế tiếp
+      if (end !== -1) {
+        const sentAt = Number(data.slice(first, end).split('|')[3]); // LOADTEST|idx|seq|ts
+        if (Number.isFinite(sentAt)) {
+          msgLatency.add(Date.now() - sentAt);
+          latencySamples.add(1);
+        }
+      }
     }
   });
 
