@@ -6,6 +6,11 @@ server:
       # nên nâng trần thread để gánh burst fan-out. Mặc định Tomcat chỉ 200.
       max: 400
       min-spare: 50
+    # Accept backlog cho cơn bão handshake 5000 client cùng connect.
+    # accept-count bị giới hạn bởi kernel net.core.somaxconn (đặt ở docker-compose
+    # sysctls + host 99-chat.sysctl.conf), nên hai bên phải khớp nhau.
+    accept-count: 10000
+    max-connections: 20000
 
 spring:
   config:
