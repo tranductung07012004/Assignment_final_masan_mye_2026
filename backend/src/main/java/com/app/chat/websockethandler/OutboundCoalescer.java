@@ -39,7 +39,7 @@ public class OutboundCoalescer {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboundCoalescer.class);
 
-    @Value("${ws.coalescer.flush-ms:100}")
+    @Value("${ws.coalescer.flush-ms:50}")
     private int flushIntervalMs;             // cửa sổ gom (latency trần thêm ~chừng này ms)
 
     @Value("${ws.coalescer.max-pending:512}")

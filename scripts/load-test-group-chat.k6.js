@@ -42,13 +42,12 @@
  *   SETTLE_MS         30000           (chờ tin về sau khi bắn)
  *   MAX_DURATION      (suy ra)        (mặc định = GRACE + SETTLE + 60s; override nếu cần)
  *   SETUP_TIMEOUT     600s            (trần thời gian setup: register + login mọi user)
- *   LATENCY_SAMPLE_RATE (tự suy)      (0..1: tỉ lệ tin được ghi latency; bỏ trống = tự suy theo CAP)
- *   LATENCY_SAMPLE_CAP  200000        (khi tự suy: giữ tổng mẫu latency ≈ giá trị này -> chặn OOM client ở N lớn)
  *
  * Số liệu k6 in ra (custom metrics):
  *   msgs_sent        tổng tin đã bắn
  *   msgs_received    tổng tin WS nhận được
- *   msg_latency      latency nhận tin (nhận - gửi), xem p95/p99/max
+ *   time_to_full     thời gian từ mốc bắn -> client nhận ĐỦ tin (1 mẫu/client, KHÔNG lấy mẫu);
+ *                    max = client chậm nhất => SLO "giao hết trong X giây"
  *   recv_per_client  phân bố số tin mỗi client nhận (min/avg/p90/p95/max)
  *   fully_delivered  tỉ lệ client nhận ĐỦ (>= expectedSent)
  *   ws_connect_errors số WS lỗi/không open được
@@ -60,31 +59,38 @@
 import { WebSocket } from 'k6/websockets';
 import { Counter, Trend, Rate } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
+import { sleep } from 'k6';
 // setTimeout/clearTimeout là global trong k6 (không cần import).
 // http/encoding KHÔNG còn dùng: login + tạo group đã chuyển sang loadtest-prepare.mjs (Node).
 
 const BASE_URL         = __ENV.BASE_URL         || 'http://localhost';
 const WS_URL           = __ENV.WS_URL           || 'ws://localhost/ws';
-const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '4000', 10);
+const NUM_USERS        = parseInt(__ENV.NUM_USERS        || '5000', 10);
 const PASSWORD         = __ENV.PASSWORD         || 'Test1234';
 const EMAIL_PREFIX     = __ENV.EMAIL_PREFIX     || 'loadtest';
 const MSG_PER_USER     = parseInt(__ENV.MSG_PER_USER     || '1', 10);
 
-// ── LATENCY SAMPLING (chống OOM ở client) ────────────────────────────────────
-// Group fan-out là n×n: client phải NHẬN ~ (số user)² tin (2000 user => 4 TRIỆU tin).
-// msg_latency là Trend -> k6 GIỮ MỌI sample trong RAM tới hết test để tính percentile.
-// 4M sample => RAM client phình lên hàng GB (đã thấy ~10GB ở 2000 user).
-// Cách chặn: chỉ ghi latency cho MỘT PHẦN tin. Delivery (msgs_received / fully_delivered)
-// vẫn đếm ĐỦ 100% — chỉ Trend latency bị lấy mẫu, percentile vẫn chuẩn với ~vài chục nghìn mẫu.
-//   - LATENCY_SAMPLE_RATE : ép cứng tỉ lệ 0..1 (vd 0.05 = ghi 5% số tin). Bỏ trống = tự suy.
-//   - LATENCY_SAMPLE_CAP  : khi tự suy, giữ tổng số mẫu latency ≈ giá trị này (mặc định 200k).
-const LATENCY_SAMPLE_RATE = __ENV.LATENCY_SAMPLE_RATE ? parseFloat(__ENV.LATENCY_SAMPLE_RATE) : null;
-const LATENCY_SAMPLE_CAP  = parseInt(__ENV.LATENCY_SAMPLE_CAP || '200000', 10);
+// LATENCY per-tin (msg_latency) ĐÃ BỎ: group fan-out là n×n (5000 user => 25 TRIỆU tin), Trend
+// giữ mọi sample trong RAM nên phải lấy mẫu rất thưa (~0.01%) -> percentile vô nghĩa, mà tăng mẫu
+// thì phình RAM client. Thay bằng time_to_full (đo 1 lần/client lúc nhận ĐỦ, KHÔNG lấy mẫu) —
+// đúng SLO "giao hết trong X giây" và không tốn RAM.
 
 // Mặc định 30s (trước là 15s): mở 1000–1500 WS cùng lúc cần đủ thời gian để
 // MỌI VU open xong TRƯỚC mốc bắn. Nếu còn ws_connect_errors > 0 ở N lớn -> tăng tiếp.
 const CONNECT_GRACE_MS = parseInt(__ENV.CONNECT_GRACE_MS || '30000', 10);
-const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '15000', 10);
+const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '50000', 10);
+
+// ── RẢI MỞ KẾT NỐI (chống connect-storm làm treo handshake) ──────────────────
+// Trước đây MỌI VU gọi new WebSocket() gần như cùng lúc -> 5000 handshake đồng thời đập
+// vào Tomcat (mỗi handshake còn chạy markOnline + presence + getUnreadCounts đồng bộ).
+// Vài handshake cuối bị starve, không hoàn tất; k6 không có handshake-timeout và nginx
+// proxy_read_timeout=3600s nên socket kẹt CONNECTING -> VU "chạy mãi" quá maxDuration.
+// Rải opens đều trong cửa sổ này (mặc định = grace - 10s, chừa biên để thằng cuối kịp open
+// TRƯỚC mốc bắn) -> test vẫn herd ở bước GỬI, chỉ bỏ herd ở bước CONNECT (không phải biến đo).
+// Đặt CONNECT_SPREAD_MS=0 để tắt (quay lại connect đồng loạt như cũ).
+const CONNECT_SPREAD_MS = __ENV.CONNECT_SPREAD_MS != null
+  ? parseInt(__ENV.CONNECT_SPREAD_MS, 10)
+  : Math.max(0, CONNECT_GRACE_MS - 10000);
 
 // ── CHẾ ĐỘ BẮN ───────────────────────────────────────────────────────────────
 // SEND_BATCH = 0 (mặc định): tất cả VU bắn ĐỒNG LOẠT tại fireAtEpoch — thundering herd,
@@ -113,10 +119,12 @@ const connOf   = (i) => `loadtest-conn-${i}`;
 // ---- custom metrics ----
 const msgsSent        = new Counter('msgs_sent');
 const msgsReceived    = new Counter('msgs_received');
-const msgLatency      = new Trend('msg_latency', true);   // true = đơn vị thời gian
-const latencySamples  = new Counter('latency_samples');   // số mẫu latency thực ghi (sau lấy mẫu)
 const recvPerClient   = new Trend('recv_per_client');
 const fullyDelivered  = new Rate('fully_delivered');
+// time_to_full: từ mốc bắn chung (fireAtEpoch) đến lúc client nhận ĐỦ tin (tin cuối cùng về).
+// Đo 1 lần/client, KHÔNG lấy mẫu -> max = "tin cuối cùng của client chậm nhất đến lúc nào".
+// Đây là thước đo SLO chính ("giao hết trong X giây"), thay cho msg_latency per-tin đã bỏ.
+const timeToFull      = new Trend('time_to_full', true);
 const wsConnectErrors = new Counter('ws_connect_errors');
 
 // ── TOKEN nạp qua SharedArray (đây là đòn giảm RAM chính) ────────────────────
@@ -154,10 +162,11 @@ export const options = {
   thresholds: {
     // SLO đã chốt (plan §10, quyết định #3): "giao HẾT trong 5 giây".
     //   - fully_delivered rate>0.99: guaranteed — nhắm 100% khi cho đủ SETTLE_MS.
-    //   - msg_latency p95 VÀ max < 5000ms: "hết trong 5s" nghĩa là cả ĐUÔI cũng phải < 5s,
-    //     nên ràng cả max (không chỉ p95) — đây là tiêu chí pass/fail chính của Pha 1.
+    //   - time_to_full p95 VÀ max < 5000ms: "hết trong 5s" nghĩa là cả ĐUÔI (client chậm nhất)
+    //     cũng phải nhận đủ < 5s. Đo per-client, KHÔNG lấy mẫu -> tiêu chí pass/fail chính.
+    //     (Hạ xuống 3000 khi nhắm mục tiêu 3s.)
     fully_delivered: ['rate>0.99'],
-    msg_latency: ['p(95)<5000', 'max<5000'],
+    time_to_full: ['p(95)<5000', 'max<5000'],
     ws_connect_errors: [`count<${Math.ceil(NUM_USERS * 0.02)}`], // <2% conn lỗi
   },
 };
@@ -189,17 +198,10 @@ export function setup() {
   const maxFireOffsetMs = SEND_BATCH > 0 ? Math.floor((validCount - 1) / SEND_BATCH) * SEND_GAP_MS : 0;
 
   // Tổng tin mọi client kỳ vọng nhận = (số user) × (tin gửi đi) = n² ở group đầy đủ.
-  // Tự suy sample-rate để giữ tổng mẫu latency ≈ LATENCY_SAMPLE_CAP (trừ khi ép cứng qua env).
   const expectedReceived = validCount * expectedSent;
-  let latencySampleRate;
-  if (LATENCY_SAMPLE_RATE != null && Number.isFinite(LATENCY_SAMPLE_RATE)) {
-    latencySampleRate = Math.min(1, Math.max(0, LATENCY_SAMPLE_RATE));
-  } else {
-    latencySampleRate = expectedReceived > 0 ? Math.min(1, LATENCY_SAMPLE_CAP / expectedReceived) : 1;
-  }
 
   console.log(`[setup] token sẵn sàng ${validCount}/${NUM_USERS} | groupId=${groupId} | expectedSent=${expectedSent}`);
-  console.log(`[setup] expectedReceived≈${expectedReceived} | latencySampleRate=${latencySampleRate.toFixed(4)} (≈${Math.round(expectedReceived * latencySampleRate)} mẫu latency)`);
+  console.log(`[setup] expectedReceived≈${expectedReceived}`);
   console.log(SEND_BATCH > 0
     ? `[setup] SO LE: ${SEND_BATCH} user/nhóm cách ${SEND_GAP_MS}ms, trải ${maxFireOffsetMs}ms`
     : `[setup] ĐỒNG LOẠT: tất cả ${validCount} user bắn cùng lúc (thundering herd)`);
@@ -208,7 +210,7 @@ export function setup() {
   // RAM: setup() return được k6 COPY vào TỪNG VU -> chỉ trả SCALAR (groupId + mốc thời gian).
   // Token KHÔNG đi qua setup-data nữa; VU đọc thẳng từ SharedArray TOKENS (1 bản chung) — đây
   // là chỗ bỏ heap O(N²) từng làm k6 ngốn ~17GB ở 5000 user.
-  return { groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, latencySampleRate, maxFireOffsetMs };
+  return { groupId, expectedSent, fireAtEpoch, settleMs: SETTLE_MS, maxFireOffsetMs };
 }
 
 export default function (data) {
@@ -218,6 +220,14 @@ export default function (data) {
 
   // Suy lại từ __VU: idx === __VU-1, deviceId/connectionId theo cùng công thức như khi prepare login.
   const idx = __VU - 1;
+
+  // RẢI MỞ KẾT NỐI: mỗi VU ngủ một nhịp theo idx rồi mới mở WS -> opens trải đều trên
+  // CONNECT_SPREAD_MS thay vì 5000 handshake dồn 1 lúc. fireAtEpoch là wall-clock cố định nên
+  // bước GỬI vẫn herd đúng mốc (đã chừa ≥10s biên cho thằng connect cuối kịp open). 0 = tắt.
+  if (CONNECT_SPREAD_MS > 0 && NUM_USERS > 1) {
+    sleep(((idx / (NUM_USERS - 1)) * CONNECT_SPREAD_MS) / 1000);
+  }
+
   const deviceId = deviceOf(idx);
   const connectionId = connOf(idx);
 
@@ -225,10 +235,11 @@ export default function (data) {
   const url = `${WS_URL}?token=${encodeURIComponent(token)}&deviceId=${encodeURIComponent(deviceId)}`
     + `&connectionId=${encodeURIComponent(connectionId)}`;
 
-  const latencySampleRate = data.latencySampleRate ?? 1;
   // Capture ở scope này: handler 'message' shadow biến `data` (= ev.data), nên không đọc được
   // data.expectedSent bên trong nó. Dùng biến đã capture cho việc đóng-sớm-khi-đủ.
   const expectedSent = data.expectedSent;
+  // Capture vì trong handler 'message' biến `data` bị shadow (= ev.data, string) -> không đọc được data.fireAtEpoch.
+  const fireAtEpoch = data.fireAtEpoch;
   let received = 0;
   let opened = false;
   let closeTimer = null;
@@ -284,8 +295,8 @@ export default function (data) {
   // Đếm tin bằng QUÉT CHUỖI, KHÔNG JSON.parse — đây là cách giảm RAM/GC ở client:
   // với BATCH (§3.4 conflation) mỗi frame chứa tới ~128 tin; JSON.parse sẽ dựng object graph
   // cho hàng TRIỆU tin -> peak RAM + GC churn lớn. Thay vào đó chỉ đếm số lần "LOADTEST|"
-  // xuất hiện trong raw frame (mỗi tin loadtest có content bắt đầu bằng marker này), và chỉ
-  // trích 1 timestamp/frame khi trúng mẫu latency. Hoạt động cho cả frame lẻ lẫn BATCH.
+  // xuất hiện trong raw frame (mỗi tin loadtest có content bắt đầu bằng marker này).
+  // Hoạt động cho cả frame lẻ lẫn BATCH.
   ws.addEventListener('message', (ev) => {
     const data = ev.data;
     if (typeof data !== 'string') return;
@@ -299,20 +310,9 @@ export default function (data) {
 
     // Đóng NGAY khi đã nhận đủ -> tránh artifact wall-clock cắt mất tin bắn cuối cùng.
     if (received >= expectedSent) {
+      // Ghi "bao lâu kể từ mốc bắn thì client này nhận đủ" (tin cuối cùng về). 1 mẫu/client.
+      timeToFull.add(Date.now() - fireAtEpoch);
       closeNow();
-      return;
-    }
-
-    // Latency lấy mẫu Ở MỨC FRAME (1 timestamp/frame khi trúng mẫu) -> ít sample, ít RAM hơn nữa.
-    if (latencySampleRate >= 1 || Math.random() < latencySampleRate) {
-      const end = data.indexOf('"', first);   // content nằm trong cặp "..."; cắt tới dấu " kế tiếp
-      if (end !== -1) {
-        const sentAt = Number(data.slice(first, end).split('|')[3]); // LOADTEST|idx|seq|ts
-        if (Number.isFinite(sentAt)) {
-          msgLatency.add(Date.now() - sentAt);
-          latencySamples.add(1);
-        }
-      }
     }
   });
 
@@ -341,9 +341,7 @@ export function handleSummary(data) {
   const connectErrors = cnt('ws_connect_errors');
   const sent = cnt('msgs_sent');
   const received = cnt('msgs_received');
-  const latSamples = cnt('latency_samples'); // số mẫu latency thực ghi (đã lấy mẫu)
   const deliveredRate = rate('fully_delivered');
-  const effSampleRate = received > 0 ? latSamples / received : 1;
   const C = '\x1b[36m', G = '\x1b[32m', Y = '\x1b[33m', R = '\x1b[31m', X = '\x1b[0m', B = '\x1b[1m';
 
   const lines = [];
@@ -353,8 +351,8 @@ export function handleSummary(data) {
   lines.push(`  Tin nhận (msgs_received)    : ${received}`);
   lines.push(`  Nhận đủ (fully_delivered)   : ${(deliveredRate * 100).toFixed(1)}%`);
   lines.push(`  Nhận/client (recv_per_client): avg ${trend('recv_per_client', 'avg').toFixed(0)} | p95 ${trend('recv_per_client', 'p(95)').toFixed(0)} | max ${trend('recv_per_client', 'max').toFixed(0)}`);
-  lines.push(`  Latency ms (msg_latency)    : p95 ${trend('msg_latency', 'p(95)').toFixed(0)} | p99 ${trend('msg_latency', 'p(99)').toFixed(0)} | max ${trend('msg_latency', 'max').toFixed(0)} | avg ${trend('msg_latency', 'avg').toFixed(0)}`);
-  lines.push(`     (latency lấy mẫu ${latSamples}/${received} tin ≈ ${(effSampleRate * 100).toFixed(1)}% — KHÔNG phải số tin nhận; delivery ở trên mới là đủ/thiếu)`);
+  lines.push(`  Nhận đủ sau (time_to_full)  : p95 ${trend('time_to_full', 'p(95)').toFixed(0)}ms | p99 ${trend('time_to_full', 'p(99)').toFixed(0)}ms | max ${trend('time_to_full', 'max').toFixed(0)}ms | avg ${trend('time_to_full', 'avg').toFixed(0)}ms`);
+  lines.push(`     (kể từ mốc bắn -> client nhận tin cuối cùng; max = client chậm nhất; KHÔNG lấy mẫu — đây là SLO "giao hết trong Xs")`);
   lines.push(`  WS connect errors           : ${connectErrors}`);
   lines.push('');
 
