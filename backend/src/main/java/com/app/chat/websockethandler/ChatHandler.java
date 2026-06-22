@@ -350,6 +350,7 @@ public class ChatHandler extends TextWebSocketHandler {
         for (String userId : distinctUserIds) {
             Set<String> servers = serversByUser.get(userId);
             if (servers == null || servers.isEmpty()) {
+                logger.info("User {} is offline on all servers", userId);
                 continue; // user offline ở mọi server
             }
             for (String server : servers) {
@@ -409,7 +410,7 @@ public class ChatHandler extends TextWebSocketHandler {
             // reconnect) là chuyện BÌNH THƯỜNG. Log này chạy per-recipient/per-message trên đường
             // nóng — để WARN sẽ spam hàng triệu dòng + bóp throughput (logback đồng bộ), và chính
             // việc ghi log đó tranh CPU với flusher -> góp phần gây drop.
-            logger.debug("userId {} has no online connection on this instance; skipped (will read from DB later)", userId);
+            logger.debug("userId {} has no online connection on this instance; skipped", userId);
             return;
         }
 

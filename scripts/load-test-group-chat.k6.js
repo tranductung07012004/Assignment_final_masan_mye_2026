@@ -78,7 +78,7 @@ const MSG_PER_USER     = parseInt(__ENV.MSG_PER_USER     || '1', 10);
 // Mặc định 30s (trước là 15s): mở 1000–1500 WS cùng lúc cần đủ thời gian để
 // MỌI VU open xong TRƯỚC mốc bắn. Nếu còn ws_connect_errors > 0 ở N lớn -> tăng tiếp.
 const CONNECT_GRACE_MS = parseInt(__ENV.CONNECT_GRACE_MS || '30000', 10);
-const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '50000', 10);
+const SETTLE_MS        = parseInt(__ENV.SETTLE_MS        || '20000', 10);
 
 // ── RẢI MỞ KẾT NỐI (chống connect-storm làm treo handshake) ──────────────────
 // Trước đây MỌI VU gọi new WebSocket() gần như cùng lúc -> 5000 handshake đồng thời đập
@@ -98,8 +98,8 @@ const CONNECT_SPREAD_MS = __ENV.CONNECT_SPREAD_MS != null
 // SEND_BATCH > 0: bắn so le theo nhóm — mỗi nhóm SEND_BATCH user bắn cách nhau SEND_GAP_MS.
 //   Giống tải thực tế (tin rải theo thời gian); chọn SEND_BATCH ≤ cap coalescer để inbound/window
 //   không vượt drain -> đo sustained throughput, tách "chậm" khỏi "mất do spike".
-const SEND_BATCH  = parseInt(__ENV.SEND_BATCH  || '500',  10);
-const SEND_GAP_MS = parseInt(__ENV.SEND_GAP_MS || '100', 10);
+const SEND_BATCH  = parseInt(__ENV.SEND_BATCH  || '5000',  10);
+const SEND_GAP_MS = parseInt(__ENV.SEND_GAP_MS || '10', 10);
 
 // maxDuration phải BAO trọn vòng đời 1 VU = open + CONNECT_GRACE + SETTLE, nếu không
 // k6 sẽ giết VU (gracefulStop) TRƯỚC khi event 'close' kịp ghi recv_per_client/
@@ -207,6 +207,16 @@ export function setup() {
     : `[setup] ĐỒNG LOẠT: tất cả ${validCount} user bắn cùng lúc (thundering herd)`);
   console.log(`[setup] >>> Sau khi k6 xong, đếm DB:  GROUP_ID=${groupId} node scripts/check-db-loadtest.mjs  <<<`);
 
+  // ── GIẢI THÍCH CÁC PHA (để đọc log lúc chạy cho dễ) ──────────────────────────
+  console.log('[plan] ===== VÒNG ĐỜI 1 VU = 4 PHA =====');
+  console.log(`[plan] (1) CONNECT : mở ${validCount} WS, RẢI trong ~${CONNECT_SPREAD_MS}ms (chống connect-storm)`);
+  console.log(`[plan] (2) CHỜ     : mọi VU idle tới MỐC BẮN chung = +0.0s (≈ ${CONNECT_GRACE_MS}ms sau setup)`);
+  console.log('[plan] (3) BẮN     : tại +0.0s tất cả gửi tin (backend nuốt + fan-out bắt đầu)');
+  console.log(`[plan] (4) DRAIN   : chờ nhận đủ, settle tối đa ${SETTLE_MS}ms; nhận đủ -> đóng sớm`);
+  console.log('[plan] LƯU Ý: suốt PHA 1+2 k6 hiện "0 complete" là BÌNH THƯỜNG — iteration chỉ tính xong');
+  console.log('[plan]        khi WS ĐÓNG (sau khi nhận đủ tin). "complete" sẽ nhảy vọt ở cuối, lúc drain xong.');
+  console.log('[plan] Mốc thời gian các dòng [connect]/[fire]/[drain] in dạng T±giây so với MỐC BẮN (vd "-12.3s" = còn 12.3s nữa).');
+
   // RAM: setup() return được k6 COPY vào TỪNG VU -> chỉ trả SCALAR (groupId + mốc thời gian).
   // Token KHÔNG đi qua setup-data nữa; VU đọc thẳng từ SharedArray TOKENS (1 bản chung) — đây
   // là chỗ bỏ heap O(N²) từng làm k6 ngốn ~17GB ở 5000 user.
@@ -240,10 +250,19 @@ export default function (data) {
   const expectedSent = data.expectedSent;
   // Capture vì trong handler 'message' biến `data` bị shadow (= ev.data, string) -> không đọc được data.fireAtEpoch.
   const fireAtEpoch = data.fireAtEpoch;
+
+  // ── NARRATOR: chỉ vài VU đại diện log tiến trình theo PHA (KHÔNG log mọi VU -> tránh spam 5000 dòng).
+  //   isSentinel: ~10 VU rải đều -> thấy PHA CONNECT "nhỏ giọt" mở dần qua cửa sổ rải.
+  //   isNarrator: đúng 1 VU kể chi tiết mốc BẮN + lúc nhận đủ (DRAIN).
+  const isNarrator = __VU === 1;
+  const isSentinel = idx % 500 === 0;
+  const relT = () => { const s = (Date.now() - fireAtEpoch) / 1000; return (s >= 0 ? '+' : '') + s.toFixed(1) + 's'; };
+
   let received = 0;
   let opened = false;
   let closeTimer = null;
   let closed = false;
+  if (isSentinel) console.log(`[connect] T${relT()} VU${__VU} (idx ${idx}) bắt đầu mở WS...`);
   const ws = new WebSocket(url);
 
   const closeNow = () => {
@@ -256,6 +275,7 @@ export default function (data) {
   // Watchdog: không open được trong 15s -> tính là lỗi connect và đóng.
   const connectTimer = setTimeout(() => {
     if (!opened) {
+      if (isSentinel) console.log(`[connect] T${relT()} VU${__VU} KHÔNG open được trong 15s -> tính lỗi connect`);
       wsConnectErrors.add(1);
       try { ws.close(); } catch (_) { /* ignore */ }
     }
@@ -264,6 +284,7 @@ export default function (data) {
   ws.addEventListener('open', () => {
     opened = true;
     clearTimeout(connectTimer);
+    if (isSentinel) console.log(`[connect] T${relT()} VU${__VU} WS OPEN -> vào PHA CHỜ tới mốc bắn (+0.0s)`);
 
     const now = Date.now();
     // So le: VU bắn trễ theo nhóm của nó (idx / SEND_BATCH). SEND_BATCH=0 -> offset 0 = đồng loạt.
@@ -275,6 +296,7 @@ export default function (data) {
 
     // Bắn tại mốc của VU (đồng loạt nếu SEND_BATCH=0, so le nếu >0).
     setTimeout(() => {
+      if (isNarrator) console.log(`[fire]  T${relT()} BẮN ${MSG_PER_USER} tin/VU — từ đây backend nuốt + fan-out (PHA DRAIN bắt đầu)`);
       for (let seq = 0; seq < MSG_PER_USER; seq++) {
         try {
           ws.send(JSON.stringify({
@@ -312,6 +334,7 @@ export default function (data) {
     if (received >= expectedSent) {
       // Ghi "bao lâu kể từ mốc bắn thì client này nhận đủ" (tin cuối cùng về). 1 mẫu/client.
       timeToFull.add(Date.now() - fireAtEpoch);
+      if (isNarrator) console.log(`[drain] T${relT()} VU${__VU} NHẬN ĐỦ ${expectedSent} tin (${Date.now() - fireAtEpoch}ms kể từ mốc bắn)`);
       closeNow();
     }
   });

@@ -15,8 +15,10 @@ import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
@@ -51,7 +53,7 @@ public class GroupBroadcaster {
 
     private static final Logger logger = LoggerFactory.getLogger(GroupBroadcaster.class);
 
-    @Value("${ws.group-broadcaster.flush-ms:50}")
+    @Value("${ws.group-broadcaster.flush-ms:20}")
     private int flushIntervalMs;             // cửa sổ gom (latency trần thêm ~chừng này ms)
 
     @Value("${ws.group-broadcaster.max-pending:8192}")
@@ -69,7 +71,7 @@ public class GroupBroadcaster {
     // CẢNH BÁO: chỉ có lợi khi máy CÒN core rảnh. Trên localhost (k6 + cả stack cùng máy) CPU đã bão
     // hoà -> tăng luồng làm CHẬM hơn (tranh CPU với k6). Chỉ nâng khi load generator chạy MÁY KHÁC.
     // 0 hoặc 1 => tuần tự (ghi thẳng trên thread flusher, không qua pool). Java 17: platform-thread.
-    @Value("${ws.group-broadcaster.fanout-threads:1}")
+    @Value("${ws.group-broadcaster.fanout-threads:4}")
     private int fanoutThreads;
     private ExecutorService fanoutPool;
     private int fanoutWorkers;
@@ -101,7 +103,9 @@ public class GroupBroadcaster {
         // Mục tiêu: tách "server bận ghi (in-send)" khỏi "tổng thời gian drain (wall)" -> nếu
         // in-send ≈ wall thì flusher kẹt trong sendMessage = backpressure (consumer/k6 đọc không kịp).
         long burstStartNanos;
-        long writeNanos;        // tổng thời gian NẰM TRONG vòng ghi socket của đợt
+        long writeNanos;        // wall của PHA GHI (gồm cả getUserConnections/isOpen lẫn sendMessage)
+        long sendNanos;         // CHỈ thời gian nằm trong session.sendMessage() (tách khỏi bookkeeping)
+        long bytesWritten;      // tổng bytes đã đẩy ra socket trong đợt -> tính MB/s (so với line-rate)
         long flushedMsgs;       // tổng tin đã flush trong đợt
         long sessionWrites;     // tổng lượt ghi session trong đợt (≈ members × số cửa sổ)
 
@@ -181,14 +185,25 @@ public class GroupBroadcaster {
             if (buf.pending.isEmpty()) {
                 // Buffer rỗng: nếu vừa kết thúc 1 đợt drain -> log số liệu rồi reset.
                 if (buf.burstStartNanos != 0L) {
-                    long wallMs = (System.nanoTime() - buf.burstStartNanos) / 1_000_000L;
-                    long inSendMs = buf.writeNanos / 1_000_000L;
-                    logger.info("Group {} drain xong: {} tin, {} lượt ghi-session | wall {}ms, in-send {}ms "
-                                    + "({}% thời gian nằm trong sendMessage => {})",
-                            entry.getKey(), buf.flushedMsgs, buf.sessionWrites, wallMs, inSendMs,
-                            wallMs > 0 ? (inSendMs * 100 / wallMs) : 0,
-                            wallMs > 0 && inSendMs * 100 / wallMs >= 80
-                                    ? "BACKPRESSURE: kẹt ghi socket (consumer đọc không kịp)"
+                    long wallMs   = (System.nanoTime() - buf.burstStartNanos) / 1_000_000L;
+                    long writeMs  = buf.writeNanos / 1_000_000L;
+                    long sendMs   = buf.sendNanos / 1_000_000L;
+                    long sendPct  = wallMs > 0 ? (sendMs * 100 / wallMs) : 0;
+                    double mb     = buf.bytesWritten / 1_000_000.0;
+                    // MB/s hiệu dụng qua link = tổng bytes / thời gian PHA GHI (writeNanos = wall của
+                    // pha ghi, đúng cho cả tuần tự lẫn song song). Gần line-rate => bound BĂNG THÔNG
+                    // (vật lý), KHÔNG phải "consumer chậm".
+                    double mbPerSec = buf.writeNanos > 0
+                            ? mb / (buf.writeNanos / 1_000_000_000.0) : 0.0;
+                    logger.info("Group {} drain xong: {} tin, {} lượt ghi-session, {} MB | wall {}ms, write {}ms, "
+                                    + "send {}ms ({}% wall nằm trong sendMessage), {} MB/s qua socket => {}",
+                            entry.getKey(), buf.flushedMsgs, buf.sessionWrites,
+                            String.format("%.1f", mb), wallMs, writeMs, sendMs, sendPct,
+                            String.format("%.1f", mbPerSec),
+                            // Chỉ kết luận "consumer chậm" khi VỪA kẹt-ghi VỪA throughput thấp; nếu MB/s
+                            // cao thì là sàn băng thông (đẩy quá nhiều bytes), không phải client đọc chậm.
+                            sendPct >= 80
+                                    ? "kẹt ghi socket (consumer đọc không kịp HOẶC chạm sàn băng thông — xem MB/s)"
                                     : "flusher RẢNH phần lớn (chờ tin tới / nút thắt ngoài server)");
                     buf.burstStartNanos = 0L;
                 }
@@ -198,6 +213,8 @@ public class GroupBroadcaster {
             if (buf.burstStartNanos == 0L) {
                 buf.burstStartNanos = System.nanoTime();
                 buf.writeNanos = 0L;
+                buf.sendNanos = 0L;
+                buf.bytesWritten = 0L;
                 buf.flushedMsgs = 0L;
                 buf.sessionWrites = 0L;
             }
@@ -219,7 +236,9 @@ public class GroupBroadcaster {
             long writeStart = System.nanoTime();
             if (fanoutPool == null) {
                 // Tuần tự (mặc định): ghi thẳng trên thread flusher, không overhead pool.
-                writeChunk(members, frame);
+                long[] m = writeChunk(members, frame);
+                buf.sendNanos += m[0];
+                buf.bytesWritten += m[1];
             } else {
                 // Chia member của cửa sổ này ra fanoutWorkers khúc, ghi SONG SONG, rồi CHỜ xong hết.
                 // invokeAll block tới khi mọi khúc ghi xong -> cửa sổ N hoàn tất trước cửa sổ N+1
@@ -227,16 +246,27 @@ public class GroupBroadcaster {
                 // session (ConcurrentWebSocketSessionDecorator vốn cũng serialize ghi theo từng session).
                 int total = members.size();
                 int chunk = (total + fanoutWorkers - 1) / fanoutWorkers;
-                List<Callable<Void>> tasks = new ArrayList<>();
+                List<Callable<long[]>> tasks = new ArrayList<>();
                 for (int from = 0; from < total; from += chunk) {
                     final List<String> slice = members.subList(from, Math.min(from + chunk, total));
-                    tasks.add(() -> { writeChunk(slice, frame); return null; });
+                    tasks.add(() -> writeChunk(slice, frame));
                 }
                 try {
-                    fanoutPool.invokeAll(tasks);
+                    // Mỗi worker trả [sendNanos, bytes] của khúc nó -> cộng dồn (không chia sẻ biến =>
+                    // không race). LƯU Ý: song song nên Σ sendNanos có thể > wall; MB/s vẫn tính theo
+                    // writeNanos (wall pha ghi) nên đúng. send% có thể vượt mốc khi nhiều luồng.
+                    List<Future<long[]>> results = fanoutPool.invokeAll(tasks);
+                    for (Future<long[]> f : results) {
+                        long[] m = f.get();
+                        buf.sendNanos += m[0];
+                        buf.bytesWritten += m[1];
+                    }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     return;          // shutdown -> dừng cửa sổ này, không ghi tiếp
+                } catch (ExecutionException e) {
+                    // writeChunk đã nuốt mọi lỗi gửi (trả về bình thường) nên nhánh này hiếm khi xảy ra.
+                    logger.debug("fanout writeChunk lỗi bất thường: {}", e.toString());
                 }
             }
             buf.writeNanos += System.nanoTime() - writeStart;
@@ -245,8 +275,17 @@ public class GroupBroadcaster {
         }
     }
 
-    /** Ghi CÙNG frame tới mọi session local của các member trong khúc (build-once, write-to-many). */
-    private void writeChunk(List<String> members, TextMessage frame) {
+    /**
+     * Ghi CÙNG frame tới mọi session local của các member trong khúc (build-once, write-to-many).
+     * Trả {@code [sendNanos, bytesWritten]}: đo RIÊNG thời gian nằm trong {@code sendMessage} (tách
+     * khỏi getUserConnections/isOpen) + tổng bytes đẩy ra socket, để log drain phân biệt được
+     * "kẹt ghi vì consumer chậm" với "chạm sàn băng thông". nanoTime sub-µs so với send (µs→ms) nên
+     * overhead không đáng kể.
+     */
+    private long[] writeChunk(List<String> members, TextMessage frame) {
+        long frameLen = frame.getPayloadLength();
+        long sendNanos = 0L;
+        long bytes = 0L;
         for (String userId : members) {
             ConcurrentHashMap<String, WebSocketSession> connections =
                     localSessionManagement.getUserConnections(userId);
@@ -258,7 +297,10 @@ public class GroupBroadcaster {
                     continue;
                 }
                 try {
+                    long t0 = System.nanoTime();
                     session.sendMessage(frame);
+                    sendNanos += System.nanoTime() - t0;   // CHỈ phần ghi socket, không gồm bookkeeping
+                    bytes += frameLen;
                 } catch (Exception e) {
                     // Thường là race "session đóng giữa isOpen() và send" — KHÔNG phải lỗi.
                     // DEBUG + không stacktrace để khỏi spam khi N lớn (ghi log tranh CPU với flusher).
@@ -267,6 +309,7 @@ public class GroupBroadcaster {
                 }
             }
         }
+        return new long[]{ sendNanos, bytes };
     }
 
     @PreDestroy
