@@ -18,6 +18,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      // Media local: backend phục vụ /media trong dev (prod do nginx serve)
+      '/media': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

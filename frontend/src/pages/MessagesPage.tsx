@@ -11,7 +11,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import { useWebSocket } from '@/hooks/useWebSocket'
 import type { ChatListItem } from '@/types/chat'
-import { uploadChatImage, uploadChatVideo } from '@/utils/cloudinaryUpload'
+import { uploadChatImage, uploadChatVideo } from '@/utils/mediaUpload'
 import { toast } from '@/utils/toast'
 
 const MARK_READ_THROTTLE_MS = 2500
@@ -306,13 +306,13 @@ export default function MessagesPage() {
       if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
         sent = sendDirect({
           receiverId: selectedChat.peerId,
-          content: uploaded.secureUrl,
+          content: uploaded.url,
           messageType: 'IMAGE',
         })
       } else if (selectedChat.type === 'GROUP') {
         sent = sendGroup({
           groupId: selectedChat.groupId,
-          content: uploaded.secureUrl,
+          content: uploaded.url,
           messageType: 'IMAGE',
         })
       }
@@ -339,13 +339,13 @@ export default function MessagesPage() {
       if (selectedChat.type === 'PRIVATE' && selectedChat.peerId != null) {
         sent = sendDirect({
           receiverId: selectedChat.peerId,
-          content: uploaded.secureUrl,
+          content: uploaded.url,
           messageType: 'VIDEO',
         })
       } else if (selectedChat.type === 'GROUP') {
         sent = sendGroup({
           groupId: selectedChat.groupId,
-          content: uploaded.secureUrl,
+          content: uploaded.url,
           messageType: 'VIDEO',
         })
       }

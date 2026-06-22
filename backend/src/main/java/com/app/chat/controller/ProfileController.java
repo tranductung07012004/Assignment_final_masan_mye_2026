@@ -4,7 +4,7 @@ import com.app.chat.dto.ApiResponse;
 import com.app.chat.dto.ProfileResponse;
 import com.app.chat.dto.UpdateProfileRequest;
 import com.app.chat.dto.UpdateProfileResponse;
-import com.app.chat.service.ProfileServiceInterface;
+import com.app.chat.service.ProfileService;
 import com.app.chat.utils.SecurityUtil;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
@@ -17,9 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/profile")
 public class ProfileController {
-    private final ProfileServiceInterface profileService;
+    private final ProfileService profileService;
 
-    public ProfileController(ProfileServiceInterface injectedProfileService) {
+    public ProfileController(ProfileService injectedProfileService) {
         this.profileService = injectedProfileService;
     }
 

@@ -24,9 +24,9 @@ import com.app.chat.repository.ChatGroupRepository;
 import com.app.chat.repository.ChatMessageRepository;
 import com.app.chat.repository.FriendRequestRepository;
 import com.app.chat.repository.UserRepository;
-import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.service.ChatService;
 import com.app.chat.service.GroupCacheService;
-import com.app.chat.utils.CloudinaryUrlValidator;
+import com.app.chat.utils.MediaUrlValidator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -45,7 +45,7 @@ import java.util.Optional;
 import java.util.Set;
 
 @Service
-public class ChatServiceImpl implements ChatServiceInterface {
+public class ChatServiceImpl implements ChatService {
     private static final int GROUP_MEMBER_LIMIT = 10000;
     private static final int GROUP_MEMBER_MINIMUM = 3;
 
@@ -57,7 +57,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
     private final UserRepository userRepository;
     private final FriendRequestRepository friendRequestRepository;
     private final GroupCacheService groupCacheService;
-    private final String cloudinaryCloudName;
+    private final String mediaUrlPrefix;
 
     public ChatServiceImpl(
             ChatGroupRepository injectedChatGroupRepository,
@@ -66,7 +66,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
             UserRepository injectedUserRepository,
             FriendRequestRepository injectedFriendRequestRepository,
             GroupCacheService injectedGroupCacheService,
-            @Value("${cloudinary.cloud-name}") String injectedCloudinaryCloudName
+            @Value("${app.media.url-prefix}") String injectedMediaUrlPrefix
     ) {
         this.chatGroupRepository = injectedChatGroupRepository;
         this.chatGroupMemberRepository = injectedChatGroupMemberRepository;
@@ -74,7 +74,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
         this.userRepository = injectedUserRepository;
         this.friendRequestRepository = injectedFriendRequestRepository;
         this.groupCacheService = injectedGroupCacheService;
-        this.cloudinaryCloudName = injectedCloudinaryCloudName;
+        this.mediaUrlPrefix = injectedMediaUrlPrefix;
     }
 
     @Override
@@ -335,11 +335,11 @@ public class ChatServiceImpl implements ChatServiceInterface {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    groupCacheService.evictGroupMembers(groupId);
+                    groupCacheService.invalidateCacheGroupMembers(groupId);
                 }
             });
         } else {
-            groupCacheService.evictGroupMembers(groupId);
+            groupCacheService.invalidateCacheGroupMembers(groupId);
         }
     }
 
@@ -477,7 +477,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
             if (imageUrl.length() > 2048) {
                 throw new ApplicationException(ErrorCode.MESSAGE_CONTENT_TOO_LONG);
             }
-            if (!CloudinaryUrlValidator.isValidChatImageUrl(imageUrl, cloudinaryCloudName, senderId)) {
+            if (!MediaUrlValidator.isValidChatMediaUrl(imageUrl, mediaUrlPrefix, senderId)) {
                 throw new ApplicationException(ErrorCode.INVALID_IMAGE_URL);
             }
             return ResolvedMessageDto.builder()
@@ -495,7 +495,7 @@ public class ChatServiceImpl implements ChatServiceInterface {
             if (videoUrl.length() > 2048) {
                 throw new ApplicationException(ErrorCode.VIDEO_URL_IS_TOO_LONG);
             }
-            if (!CloudinaryUrlValidator.isValidChatVideoUrl(videoUrl, cloudinaryCloudName, senderId)) {
+            if (!MediaUrlValidator.isValidChatMediaUrl(videoUrl, mediaUrlPrefix, senderId)) {
                 throw new ApplicationException(ErrorCode.INVALID_VIDEO_URL);
             }
             return ResolvedMessageDto.builder()

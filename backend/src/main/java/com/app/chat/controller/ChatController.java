@@ -4,7 +4,7 @@ import com.app.chat.dto.ApiResponse;
 import com.app.chat.dto.ChatListItemResponse;
 import com.app.chat.dto.FriendResponse;
 import com.app.chat.dto.MessageCursorPageResponse;
-import com.app.chat.service.ChatServiceInterface;
+import com.app.chat.service.ChatService;
 import com.app.chat.utils.SecurityUtil;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,9 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/chat")
 public class ChatController {
 
-    private final ChatServiceInterface chatService;
+    private final ChatService chatService;
 
-    public ChatController(ChatServiceInterface injectedChatService) {
+    public ChatController(ChatService injectedChatService) {
         this.chatService = injectedChatService;
     }
     @GetMapping("/list")

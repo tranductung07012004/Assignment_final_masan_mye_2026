@@ -4,7 +4,7 @@ import { useChatStore } from '@/stores/chatStore'
 import { useProfileStore } from '@/stores/profileStore'
 import type { ChatMessage } from '@/types/chat'
 import type { MarkRead, PresenceQuery } from '@/types/websocket'
-import { getDeviceId } from '@/utils/deviceId'
+import { getConnectionId, getDeviceId } from '@/utils/deviceId'
 import { toast } from '@/utils/toast'
 
 const WS_BASE_URL = import.meta.env.VITE_WS_BASE_URL ?? 'ws://localhost:8080'
@@ -96,7 +96,8 @@ export function useWebSocket() {
     clearReconnectTimer()
 
     const deviceId = getDeviceId()
-    const wsUrl = `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}`
+    const connectionId = getConnectionId()
+    const wsUrl = `${WS_BASE_URL}/ws?token=${encodeURIComponent(accessToken)}&deviceId=${encodeURIComponent(deviceId)}&connectionId=${encodeURIComponent(connectionId)}`
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -108,6 +109,35 @@ export function useWebSocket() {
         reconnectToastShownRef.current = false
       }
       hasConnectedRef.current = true
+    }
+
+    // Xử lý 1 chat-message DTO — dùng chung cho frame lẻ lẫn từng phần tử trong BATCH.
+    const handleChatMessage = (dto: IncomingMessageDto) => {
+      const isOwn = dto.senderMemberId === currentUserIdRef.current
+      const message: ChatMessage = {
+        id: dto.id,
+        groupId: dto.groupId,
+        senderId: dto.senderMemberId,
+        senderName: dto.senderFullName ?? 'Unknown',
+        senderAvatarUrl: dto.senderAvatarUrl ?? null,
+        content: dto.deletedAt ? null : dto.content,
+        messageType: dto.messageType ?? 'TEXT',
+        sentAt: dto.createdAt,
+        isOwn,
+        isDeleted: dto.deletedAt !== null,
+      }
+      appendMessageRef.current(message)
+      updateLastMessageRef.current(dto.groupId, {
+        content: dto.content,
+        type: dto.messageType ?? 'TEXT',
+        at: dto.createdAt,
+        senderId: dto.senderMemberId,
+        senderName: dto.senderFullName,
+      })
+
+      if (!isOwn && dto.groupId !== selectedGroupIdRef.current) {
+        incrementUnreadRef.current(dto.groupId)
+      }
     }
 
     ws.onmessage = (event: MessageEvent<string>) => {
@@ -138,33 +168,21 @@ export function useWebSocket() {
           return
         }
 
-        // no type field → chat message
-        const dto = data as IncomingMessageDto
-        const isOwn = dto.senderMemberId === currentUserIdRef.current
-        const message: ChatMessage = {
-          id: dto.id,
-          groupId: dto.groupId,
-          senderId: dto.senderMemberId,
-          senderName: dto.senderFullName ?? 'Unknown',
-          senderAvatarUrl: dto.senderAvatarUrl ?? null,
-          content: dto.deletedAt ? null : dto.content,
-          messageType: dto.messageType ?? 'TEXT',
-          sentAt: dto.createdAt,
-          isOwn,
-          isDeleted: dto.deletedAt !== null,
+        // BATCH (conflation): server gom nhiều tin của 1 group/cửa sổ thành 1 frame
+        // {type:'BATCH', messages:[...]} (xem OutboundFrames.batch / GroupBroadcaster ở backend).
+        // Mỗi phần tử trong messages là 1 chat-message DTO y như frame lẻ -> xử lý từng cái.
+        if (data.type === 'BATCH') {
+          const messages = data.messages
+          if (Array.isArray(messages)) {
+            for (const item of messages) {
+              handleChatMessage(item as IncomingMessageDto)
+            }
+          }
+          return
         }
-        appendMessageRef.current(message)
-        updateLastMessageRef.current(dto.groupId, {
-          content: dto.content,
-          type: dto.messageType ?? 'TEXT',
-          at: dto.createdAt,
-          senderId: dto.senderMemberId,
-          senderName: dto.senderFullName,
-        })
 
-        if (!isOwn && dto.groupId !== selectedGroupIdRef.current) {
-          incrementUnreadRef.current(dto.groupId)
-        }
+        // no type field → chat message
+        handleChatMessage(data as IncomingMessageDto)
       } catch {
         // malformed payload — ignore
       }
@@ -173,7 +191,7 @@ export function useWebSocket() {
     ws.onclose = () => {
       // Fix 4 (broken pipe): chi socket dang la "current" moi duoc phep reconnect.
       // Neu socket nay da bi thay bang socket moi (stale) hoac dong chu dich (cleanup / React StrictMode) ->
-      // KHONG reconnect, tranh tao them WS trung deviceId khien server kill -> reconnect loop.
+      // KHONG reconnect, tranh tao them WS trung connectionId khien server kill -> reconnect loop.
       const isCurrent = wsRef.current === ws
       if (isCurrent) {
         wsRef.current = null

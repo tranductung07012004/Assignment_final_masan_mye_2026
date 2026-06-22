@@ -108,3 +108,13 @@ docker compose --profile prod down        # dừng full stack
 # docker compose down                      # dừng chế độ local dev (redis + db)
 # thêm -v để xoá luôn dữ liệu (volumes): docker compose down -v
 ```
+
+## Quy trình chạy test
+```
+=> Script run-loadtest.sh cho cả 3 file
+
+node scripts/loadtest-prepare.mjs          # login + tạo group -> ghi file token (~15p sống)
+k6 run scripts/load-test-group-chat.k6.js  # đọc token qua SharedArray
+GROUP_ID=<id> node scripts/check-db-loadtest.mjs
+Nếu quên prepare, k6 sẽ báo lỗi rõ ràng kèm lệnh cần chạy.
+```

@@ -2,7 +2,7 @@ package com.app.chat.controller;
 
 import com.app.chat.constants.ErrorCode;
 import com.app.chat.dto.*;
-import com.app.chat.service.AuthServiceInterface;
+import com.app.chat.service.AuthService;
 import com.app.chat.utils.SecurityUtil;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
@@ -18,11 +18,11 @@ import java.util.Map;
 public class AuthController {
     public static final String DEVICE_ID_HEADER = "X-Device-Id";
 
-    private final AuthServiceInterface authService;
+    private final AuthService authService;
     private final Integer cookieExpiration;
 
     public AuthController(
-            AuthServiceInterface injectedAuthService,
+            AuthService injectedAuthService,
             @Value("${cookie.expiration}") Integer injectedCookieExpiration
     ) {
         this.authService = injectedAuthService;
