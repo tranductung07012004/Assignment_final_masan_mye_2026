@@ -48,8 +48,6 @@ public class JwtInterceptor implements HandshakeInterceptor {
             return false;
         }
 
-        // Unique per browser tab. Lets one browser hold several concurrent WebSocket
-        // connections (one per tab) without the tabs kicking each other out.
         if (connectionId == null || connectionId.isBlank()) {
             res.setStatusCode(HttpStatus.BAD_REQUEST);
             return false;

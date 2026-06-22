@@ -12,7 +12,6 @@ import java.util.Optional;
 
 public interface ChatGroupRepository extends JpaRepository<ChatGroup, Long> {
 
-
     @Query(value = """
             SELECT cg.*
             FROM chat_groups cg

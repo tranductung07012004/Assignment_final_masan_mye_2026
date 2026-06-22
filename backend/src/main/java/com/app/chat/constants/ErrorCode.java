@@ -54,7 +54,6 @@ public enum ErrorCode {
     FRIEND_REQUEST_NOT_RECEIVER("You are not the receiver of this friend request", 403),
     FRIEND_REQUEST_NOT_PENDING("This friend request is no longer pending", 409);
 
-
     private final String message;
     private final int status;
 

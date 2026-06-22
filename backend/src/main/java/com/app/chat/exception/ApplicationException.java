@@ -1,6 +1,5 @@
 package com.app.chat.exception;
 
-
 import com.app.chat.constants.ErrorCode;
 
 public class ApplicationException extends RuntimeException {

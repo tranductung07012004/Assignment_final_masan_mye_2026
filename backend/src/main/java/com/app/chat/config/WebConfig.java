@@ -7,11 +7,6 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.nio.file.Paths;
 
-/**
- * Serve media tĩnh trực tiếp từ backend dưới {urlPrefix}/**.
- * Dùng cho local dev (không có nginx). Trên prod, nginx bắt /media/ trước nên
- * handler này gần như không được gọi tới — vẫn để cho parity & fallback.
- */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 

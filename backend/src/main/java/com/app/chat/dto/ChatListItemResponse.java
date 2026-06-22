@@ -1,6 +1,5 @@
 package com.app.chat.dto;
 
-
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;

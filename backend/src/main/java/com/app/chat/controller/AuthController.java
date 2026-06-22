@@ -71,7 +71,6 @@ public class AuthController {
             HttpServletResponse res
             ) {
 
-
         if (refreshToken == null) {
             return ResponseEntity
                     .status(401)

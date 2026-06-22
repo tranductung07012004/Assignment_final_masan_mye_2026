@@ -46,7 +46,6 @@ public class GroupCacheServiceImpl implements GroupCacheService {
     @CacheEvict(value = "group-members", key = "#groupId")
     public void invalidateCacheGroupMembers(Long groupId) {}
 
-
     @Override
     @Cacheable(value = "private-chat",
             key = "#senderId < #receiverId ? #senderId + ':' + #receiverId : #receiverId + ':' + #senderId")
@@ -55,7 +54,6 @@ public class GroupCacheServiceImpl implements GroupCacheService {
                 .orElseThrow(() -> new ApplicationException(ErrorCode.PRIVATE_CHAT_NOT_FOUND))
                 .getId();
     }
-
 
     @Override
     @Cacheable(value = "user", key = "#userId")

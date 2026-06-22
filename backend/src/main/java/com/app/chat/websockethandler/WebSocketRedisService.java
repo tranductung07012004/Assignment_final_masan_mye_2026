@@ -58,10 +58,6 @@ public class WebSocketRedisService {
         return redisTemplate.opsForSet().members(presenceKey(userId));
     }
 
-    /**
-     * Resolve presence cho NHIỀU user trong MỘT pipeline (thay vì 1 SMEMBERS/round-trip per user).
-     * Trả map userId -> tập serverId đang giữ session của user đó (rỗng nếu offline).
-     */
     public Map<String, Set<String>> findServersForUsers(Collection<String> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return Map.of();

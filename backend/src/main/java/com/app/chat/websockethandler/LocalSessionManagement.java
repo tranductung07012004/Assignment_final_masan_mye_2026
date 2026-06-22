@@ -9,8 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 @Component
 public class LocalSessionManagement {
 
-    // userId -> (connectionId -> session). A connectionId is unique per browser tab,
-    // so one user can hold many concurrent connections (multiple tabs and/or devices).
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, WebSocketSession>> sessionsByUser
             = new ConcurrentHashMap<>();
 

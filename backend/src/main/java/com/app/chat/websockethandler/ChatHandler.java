@@ -1,6 +1,5 @@
 package com.app.chat.websockethandler;
 
-
 import com.app.chat.config.InstanceIdentityConfig;
 import com.app.chat.dto.ChatMessageResponse;
 import com.app.chat.dto.GroupMessageResult;
@@ -42,9 +41,7 @@ public class ChatHandler extends TextWebSocketHandler {
     private static final Logger logger = LoggerFactory.getLogger(ChatHandler.class);
 
     private static final String SERVER_CHANNEL_PREFIX = "server:";
-    // Fix 1 (Cách A): group fan-out goes through ONE shared channel that every instance
-    // subscribes to, carrying the full member-id list — instead of an SMEMBERS-per-member
-    // presence lookup. Direct/presence still use the targeted server:{id} channel.
+
     private static final String BROADCAST_CHANNEL = "group-broadcast";
 
     private final String serverId;
@@ -101,8 +98,7 @@ public class ChatHandler extends TextWebSocketHandler {
         ConcurrentHashMap<String, WebSocketSession> connections = localSessionManagement.getUserConnections(userId);
 
         if (connections != null) {
-            // Only closes a stale socket of the SAME tab (same connectionId), e.g. a reconnect
-            // after a broken pipe. Other tabs have different connectionIds and are left alone.
+
             WebSocketSession existingSession = connections.get(connectionId);
             if (existingSession != null && existingSession.isOpen() && !existingSession.getId().equals(session.getId())) {
                 try {
@@ -331,13 +327,6 @@ public class ChatHandler extends TextWebSocketHandler {
         publishToUsers(List.of(userId), messagePayload);
     }
 
-    /**
-     * Giao 1 payload tới NHIỀU user một cách hiệu quả:
-     *   - Option 4: resolve presence của tất cả user trong MỘT pipeline.
-     *   - Option 2: user nối vào CHÍNH server này -> push thẳng vào WS local, KHÔNG qua Redis.
-     *   - Option 3: user ở server khác -> gom theo server rồi PUBLISH đúng 1 lần/server
-     *               (kèm danh sách userId), thay vì 1 publish / user.
-     */
     private void publishToUsers(Collection<String> userIds, String messagePayload) {
         if (userIds == null || userIds.isEmpty()) {
             return;
@@ -351,7 +340,7 @@ public class ChatHandler extends TextWebSocketHandler {
             Set<String> servers = serversByUser.get(userId);
             if (servers == null || servers.isEmpty()) {
                 logger.info("User {} is offline on all servers", userId);
-                continue; // user offline ở mọi server
+                continue;
             }
             for (String server : servers) {
                 if (serverId.equals(server)) {
@@ -375,23 +364,12 @@ public class ChatHandler extends TextWebSocketHandler {
         }
     }
 
-    /**
-     * Fix 1 (Cách A): fan out a group message with EXACTLY ONE Redis PUBLISH, regardless of
-     * group size. Every instance is subscribed to {@link #BROADCAST_CHANNEL}; each one receives
-     * this payload (carrying all member ids + groupId) and delivers only to the members whose
-     * sessions it holds locally — no per-member SMEMBERS presence lookup.
-     * <p>
-     * Phase 1 (shared-buffer broadcast): the listener no longer loops members to enqueue
-     * per-session; it appends to {@link GroupBroadcaster}, which builds the frame ONCE per
-     * group/window and writes the same buffer to every local session (build-once, write-to-many).
-     */
     private void publishGroupMessage(long groupId, List<String> memberIds, String messagePayload) {
         if (memberIds == null || memberIds.isEmpty()) {
             return;
         }
         try {
-            // groupId đi kèm để mỗi instance route payload vào đúng buffer của group trong
-            // GroupBroadcaster (shard theo groupId -> giữ thứ tự + build-once/group/cửa sổ).
+
             String wrappedPayload = objectMapper.writeValueAsString(Map.of(
                     "groupId", groupId,
                     "targetUserIds", memberIds,
@@ -406,10 +384,7 @@ public class ChatHandler extends TextWebSocketHandler {
     public void pushMessageToLocalWebSocketSession(String userId, String payload) {
         ConcurrentHashMap<String, WebSocketSession> connections = localSessionManagement.getUserConnections(userId);
         if (connections == null || connections.isEmpty()) {
-            // DEBUG, không WARN: trong group fan-out, member offline (sẽ đọc lại từ DB/unread khi
-            // reconnect) là chuyện BÌNH THƯỜNG. Log này chạy per-recipient/per-message trên đường
-            // nóng — để WARN sẽ spam hàng triệu dòng + bóp throughput (logback đồng bộ), và chính
-            // việc ghi log đó tranh CPU với flusher -> góp phần gây drop.
+
             logger.debug("userId {} has no online connection on this instance; skipped", userId);
             return;
         }
@@ -421,9 +396,6 @@ public class ChatHandler extends TextWebSocketHandler {
                 continue;
             }
 
-            // Gom thay vì gửi thẳng: §3.4 conflation + §3.5 backpressure. enqueue là thao tác
-            // queue non-blocking (không throw); việc gửi blocking + bắt SessionLimitExceededException
-            // giờ nằm trong flusher của OutboundCoalescer, nên 1 client chậm không chặn fan-out.
             outboundCoalescer.enqueue(session, payload);
         }
     }

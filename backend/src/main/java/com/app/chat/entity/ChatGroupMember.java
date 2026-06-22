@@ -1,6 +1,5 @@
 package com.app.chat.entity;
 
-
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
