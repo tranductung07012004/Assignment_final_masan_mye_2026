@@ -30,16 +30,16 @@ services:
     networks:
       - backend
 
-  # frontend:
-  #   profiles: ["prod"]
-  #   build:
-  #     context: ../frontend
-  #     args:
-  #       # Cùng origin qua nginx :80 nên dùng host "localhost"
-  #       VITE_API_BASE_URL: http://localhost
-  #       VITE_WS_BASE_URL: ws://localhost
-  #   networks:
-  #     - backend
+  frontend:
+    profiles: ["prod"]
+    build:
+      context: ../frontend
+      args:
+        # Cùng origin qua nginx :80 nên dùng host "localhost"
+        VITE_API_BASE_URL: http://localhost
+        VITE_WS_BASE_URL: ws://localhost
+    networks:
+      - backend
 
   app:
     profiles: ["prod"]
