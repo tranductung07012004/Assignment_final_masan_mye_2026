@@ -1,6 +1,5 @@
 package com.app.chat.repository;
 
-
 import com.app.chat.dto.GroupMemberProjection;
 import com.app.chat.entity.ChatGroupMember;
 import org.springframework.data.jpa.repository.JpaRepository;

@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Optional;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, Long> {
-        
+
     @Query(value = """
             SELECT *
             FROM chat_messages

@@ -56,7 +56,6 @@ public class GlobalExceptionHandler {
                 .body(new ApiResponse<>("Invalid request payload: " + ex.getMessage(), null));
     }
 
-
     @ExceptionHandler(ApplicationException.class)
     public ResponseEntity<?> handleApplicationException(ApplicationException ex) {
         Map<String, Object> errorData = new HashMap<>();

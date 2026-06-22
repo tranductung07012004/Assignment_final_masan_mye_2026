@@ -31,7 +31,6 @@ public class ProfileServiceImpl implements ProfileService {
         User user = this.userRepository.findUserById(userId)
                 .orElseThrow(() -> new ApplicationException(ErrorCode.USER_NOT_FOUND));
 
-
         return ProfileResponse.builder()
                 .userId(user.getId())
                 .email(user.getEmail())

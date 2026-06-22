@@ -22,7 +22,6 @@ public class JwtUtil {
 
     private static final Logger logger = LoggerFactory.getLogger(JwtUtil.class);
 
-
     public JwtUtil(
             @Value("${jwt.secret}") String secretKey,
             @Value("${jwt.expiration_access}") long expiration_access,
@@ -58,7 +57,6 @@ public class JwtUtil {
     public String extractUserId(String token) {
         return this.getClaims(token).getSubject();
     }
-
 
     private Claims getClaims(String token) {
         return Jwts.parserBuilder()

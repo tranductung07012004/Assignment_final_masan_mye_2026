@@ -37,9 +37,7 @@ public class RedisMessageListener implements MessageListener {
     @Override
     public void onMessage(Message message, byte[] pattern) {
         String channel = new String(message.getChannel(), StandardCharsets.UTF_8);
-        // server:{id} = targeted (direct/presence); group-broadcast = group fan-out (Fix 1).
-        // Both carry the same { targetUserIds, message } shape and route through the same
-        // local delivery below, so only the channel gate needs to know about both.
+
         if (!channel.startsWith(SERVER_CHANNEL_PREFIX) && !channel.equals(BROADCAST_CHANNEL)) {
             logger.warn("Ignoring message on unexpected channel: {}", channel);
             return;
@@ -55,9 +53,7 @@ public class RedisMessageListener implements MessageListener {
             }
 
             if (channel.equals(BROADCAST_CHANNEL)) {
-                // Group fan-out (Phase 1): KHÔNG loop N member để enqueue per-session. Nối nguyên
-                // member list + payload vào buffer của group (O(1)); GroupBroadcaster dựng frame
-                // 1 lần/group/cửa sổ rồi ghi cùng buffer tới mọi session local (build-once).
+
                 long groupId = node.get("groupId").asLong();
                 List<String> ids = new ArrayList<>(targetUserIds.size());
                 for (JsonNode id : targetUserIds) {
@@ -65,7 +61,7 @@ public class RedisMessageListener implements MessageListener {
                 }
                 groupBroadcaster.append(groupId, ids, actualPayload);
             } else {
-                // server:{id} = direct / presence / cross-group: vẫn đi qua coalescer per-session.
+
                 for (JsonNode id : targetUserIds) {
                     chatHandler.pushMessageToLocalWebSocketSession(id.asText(), actualPayload);
                 }
